@@ -2,7 +2,39 @@
 
 Python serves both the website and the PDF editing API. No frontend build tools or external services are needed.
 
+## Run with Bash (Linux, macOS, or Git Bash on Windows)
+
+From the project root:
+
+```bash
+bash pdf-value-editor/start.sh
+```
+
+Or, from inside the app folder:
+
+```bash
+bash start.sh
+```
+
+Open **http://127.0.0.1:8000**. The script uses an existing local or parent virtual environment, or creates one if needed. Missing dependencies are installed automatically. Python 3 must be installed; installation of packages requires internet access. Keep the terminal open and press **Ctrl+C** to stop the app.
+
 ## Run on Windows
+
+### Easiest: launcher
+
+Double-click `start.bat` in this folder. Then open **http://127.0.0.1:8000** in your browser.
+
+The launcher uses an existing Python environment in this folder or its parent. If neither exists, it creates one using Python on your PATH. Missing required packages are installed automatically (internet access is needed for installation). Keep the command window open while using the website; press **Ctrl+C** to stop it.
+
+You can also launch it from PowerShell in the project root:
+
+```powershell
+.\pdf-value-editor\start.bat
+```
+
+If the app is already running, use the existing website or stop that instance before starting another one.
+
+### Manual commands
 
 Run these commands inside the `pdf-value-editor` folder:
 

@@ -87,10 +87,93 @@ def locate_scan(data, old, page_number=1, rotation=0):
     return {'matches': matches, 'image': _preview(annotated), 'pages': page_count, 'page': page_number}
 
 
-def preview_scan(data, page_number=1, rotation=0):
+def locate_document(data, old, rotation=0):
+    """Search every page and return page-labelled, individually signed matches."""
+    with pymupdf.open(stream=data, filetype='pdf') as doc:
+        page_count = len(doc)
+    matches = []
+    skipped = []
+    first_preview = None
+    for page_number in range(1, page_count + 1):
+        try:
+            result = locate_scan(data, old, page_number, rotation)
+        except ValueError as exc:
+            if str(exc).startswith('No confident exact OCR match'):
+                continue
+            # Invalid input must fail, rather than being reported as an unsupported page.
+            if str(exc).startswith('Enter the exact text'):
+                raise
+            skipped.append({'page': page_number, 'reason': str(exc)})
+            continue
+        if first_preview is None:
+            first_preview = result
+        matches.extend(result['matches'])
+    if not matches:
+        details = ' Some pages were unsupported: ' + ', '.join(str(p['page']) for p in skipped) if skipped else ''
+        raise ValueError('No confident exact OCR match found across the PDF.' + details)
+    return {'matches': matches, 'image': first_preview['image'], 'page': first_preview['page'], 'pages': page_count, 'searched_pages': page_count, 'skipped_pages': skipped}
+
+
+def preview_selection(data, selection):
+    candidate = selection['candidate']
+    if not hmac.compare_digest(_signature(candidate), selection['signature']) or candidate['digest'] != hashlib.sha256(data).hexdigest():
+        raise ValueError('Invalid or expired OCR selection. Find the value again.')
+    with pymupdf.open(stream=data, filetype='pdf') as doc:
+        _, _, image = _image(doc, candidate['page'], candidate['rotation'])
+        ImageDraw.Draw(image).rectangle(candidate['box'], outline='red', width=5)
+        return {'image': _preview(image), 'page': candidate['page'], 'pages': len(doc)}
+
+
+def locate_region(data, page_number, rotation, region):
+    global _engine
+    if len(region) != 4 or not all(isinstance(v,(int,float)) and 0 <= v <= 1 for v in region) or region[0] >= region[2] or region[1] >= region[3]:
+        raise ValueError('Invalid selected region.')
     with pymupdf.open(stream=data, filetype='pdf') as doc:
         _, _, image = _image(doc, page_number, rotation)
-        return {'image': _preview(image), 'pages': len(doc), 'page': page_number}
+        page_count = len(doc)
+    x0,y0,x1,y1 = [round(v * (image.width if i % 2 == 0 else image.height)) for i,v in enumerate(region)]
+    if x1-x0 < 8 or y1-y0 < 8:
+        raise ValueError('Select a larger area around the complete text.')
+    crop = image.crop((x0,y0,x1,y1))
+    with _lock:
+        if _engine is None:
+            try:
+                from rapidocr_onnxruntime import RapidOCR
+            except ImportError:
+                raise ValueError('Install OCR dependencies from requirements.txt first.')
+            _engine = RapidOCR(intra_op_num_threads=2, inter_op_num_threads=2)
+        results, _ = _engine(np.array(crop))
+    matches=[]
+    for box,text,score in results or []:
+        text=text.strip()
+        if not text or score < 0.85:
+            continue
+        xs=[p[0]+x0 for p in box];ys=[p[1]+y0 for p in box]
+        rect=[max(x0,math.floor(min(xs))),max(y0,math.floor(min(ys))),min(x1,math.ceil(max(xs))),min(y1,math.ceil(max(ys)))]
+        if rect[2]-rect[0] <= rect[3]-rect[1]:
+            continue
+        candidate={'digest':hashlib.sha256(data).hexdigest(),'old':text,'page':page_number,'rotation':rotation,'box':rect,'text':text,'score':round(float(score),4)}
+        matches.append({'candidate':candidate,'signature':_signature(candidate)})
+    if not matches:
+        raise ValueError('No confident text detected in this area. Include the complete value and some surrounding space, or adjust rotation.')
+    first=preview_selection(data,matches[0])
+    return {'matches':matches,'image':first['image'],'page':page_number,'pages':page_count}
+
+
+def preview_scan(data, page_number=1, rotation=0):
+    with pymupdf.open(stream=data, filetype='pdf') as doc:
+        if not 1 <= page_number <= len(doc) or rotation not in (0,90,180,270):
+            raise ValueError('Invalid page or rotation.')
+        try:
+            _, _, image = _image(doc, page_number, rotation)
+            editable = True
+        except ValueError:
+            page=doc[page_number-1]
+            scale=min(1.5,1600/max(page.rect.width,page.rect.height))
+            pixmap=page.get_pixmap(matrix=pymupdf.Matrix(scale,scale),alpha=False)
+            image=Image.open(io.BytesIO(pixmap.tobytes('png'))).convert('RGB').rotate(-rotation,expand=True)
+            editable=False
+        return {'image': _preview(image), 'pages': len(doc), 'page': page_number, 'editable': editable}
 
 
 def edit_scan(data, new, signed_candidate):

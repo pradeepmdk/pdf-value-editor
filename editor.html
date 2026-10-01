@@ -12,13 +12,14 @@
 <p class="hint">Numbers, letters, and mixed text are accepted. Enter the exact text shown in the PDF. Longer replacements use a smaller font to fit the original space.</p>
 <label for="scope">Replace</label><select id="scope"><option value="all">All exact occurrences</option><option value="one">One occurrence</option></select>
 <div id="occWrap" hidden><label for="occ">Occurrence number</label><input id="occ" type="number" value="1" min="1"><p class="hint">Counted in page and PDF text order.</p></div>
+<div id="areaWrap" hidden><label for="areaMatches">Text in selected area</label><select id="areaMatches"></select></div>
 <button id="edit" disabled>Create edited PDF</button><a id="download" class="download" hidden>Download edited PDF</a><p id="status" role="status" aria-live="polite">Choose a PDF to begin.</p>
 <p class="hint">Only the selected values change. Totals are not recalculated. This mode supports standard-font text PDFs such as the sample BWA. Use the OCR editor for scans. Files stay in memory in the local Python server.</p></section>
-<section class="card"><div id="nav"><button id="prev" disabled>Previous</button><span id="pageLabel">Preview</span><button id="next" disabled>Next</button></div><p id="previewLabel">Your PDF preview will appear here.</p><img id="preview" hidden alt="PDF page preview"></section></div></main>
-<script>
+<section class="card"><div id="nav"><button id="prev" disabled>Previous</button><span id="pageLabel">Preview</span><button id="next" disabled>Next</button></div><p>Drag a rectangle around a complete value or text to select it.</p><button id="originalView" hidden>Show original to select another area</button><p id="previewLabel">Your PDF preview will appear here.</p><img id="preview" hidden alt="PDF page preview"></section></div></main>
+<script src="/selection.js"></script><script>
 const $=id=>document.getElementById(id);let original=null,current=null,page=1,pages=1,busy=false,url=null,edited=false;
 function state(message,error=false){$('status').textContent=message;$('status').className=error?'error':''}
-function controls(){ $('edit').disabled=busy||!original;$('file').disabled=busy;$('prev').disabled=busy||!current||page<=1;$('next').disabled=busy||!current||page>=pages; }
+function controls(){ $('edit').disabled=busy||!original;$('file').disabled=busy;$('prev').disabled=busy||!current||page<=1;$('next').disabled=busy||!current||page>=pages;$('preview').dataset.selectDisabled=String(busy||edited);$('originalView').hidden=!edited;$('originalView').disabled=busy;$('areaMatches').disabled=busy; }
 function clearDownload(){if(url)URL.revokeObjectURL(url);url=null;$('download').hidden=true}
 async function api(path,data){const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const result=await response.json();if(!response.ok)throw Error(result.error);return result}
 function show(result){pages=result.pages;$('preview').src='data:image/png;base64,'+result.image;$('preview').hidden=false;$('pageLabel').textContent=`Page ${page} of ${pages}`;$('previewLabel').textContent=edited?'Edited PDF':'Original PDF'}
@@ -27,4 +28,9 @@ $('file').onchange=async()=>{clearDownload();original=current=null;edited=false;
 $('scope').onchange=()=>{$('occWrap').hidden=$('scope').value==='all';clearDownload()};for(const id of ['old','new','occ'])$(id).oninput=clearDownload;
 $('edit').onclick=async()=>{busy=true;controls();clearDownload();state('Editing PDF…');try{const result=await api('/api/edit',{pdf:original,old:$('old').value,new:$('new').value,occurrence:$('scope').value==='all'?0:Number($('occ').value)});current=result.pdf;edited=true;page=result.page;show(result);const binary=atob(result.pdf),bytes=Uint8Array.from(binary,c=>c.charCodeAt(0));url=URL.createObjectURL(new Blob([bytes],{type:'application/pdf'}));$('download').href=url;$('download').download=$('file').files[0].name.replace(/\.pdf$/i,'')+'-edited.pdf';$('download').hidden=false;state(`Updated ${result.count} occurrence(s) on page(s) ${result.changed_pages.join(', ')}. Preview the result, then download.`)}catch(e){state(e.message,true)}finally{busy=false;controls()}};
 $('prev').onclick=()=>{page--;loadPreview()};$('next').onclick=()=>{page++;loadPreview()};
+let areaMatches=[];
+function chooseArea(){const choice=areaMatches[Number($('areaMatches').value)];if(!choice)return;$('old').value=choice.text;$('scope').value='one';$('occ').value=choice.occurrence;$('occWrap').hidden=false;clearDownload();state('Selected this occurrence. Enter the replacement and create the edited PDF.')}
+$('areaMatches').onchange=chooseArea;
+$('originalView').onclick=()=>{current=original;edited=false;loadPreview()};
+enableAreaSelection($('preview'),async region=>{if(busy||edited||!original)return;busy=true;controls();clearDownload();state('Reading selected text…');try{const r=await api('/api/text/select',{pdf:original,page,region});areaMatches=r.matches;$('areaMatches').innerHTML='';areaMatches.forEach((m,i)=>{const o=document.createElement('option');o.value=i;o.textContent=m.text;$('areaMatches').appendChild(o)});$('areaWrap').hidden=false;chooseArea()}catch(e){$('areaWrap').hidden=true;state(e.message,true)}finally{busy=false;controls()}});
 </script></html>

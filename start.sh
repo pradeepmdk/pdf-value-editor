@@ -35,4 +35,4 @@ fi
 
 echo 'Open http://127.0.0.1:8000 in your browser.'
 echo 'Keep this terminal open. Press Ctrl+C to stop the app.'
-exec "$editor_python" pdf_editor.py
+exec "$editor_python" pdf_editor.py "$@"

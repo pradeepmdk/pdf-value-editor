@@ -1,5 +1,6 @@
 """Local PDF value editor. Run: python pdf_editor.py"""
 import base64
+import argparse
 import json
 import re
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -140,7 +141,38 @@ def preview(data, page_number=1):
         return base64.b64encode(png).decode(), len(doc)
 
 
+def select_text(data, page_number, region):
+    if len(region) != 4 or not all(isinstance(v, (float, int)) and 0 <= v <= 1 for v in region) or region[0] >= region[2] or region[1] >= region[3]:
+        raise ValueError('Invalid selected region.')
+    with pymupdf.open(stream=data, filetype='pdf') as doc:
+        if not 1 <= page_number <= len(doc):
+            raise ValueError('Invalid page number.')
+        selected_page = doc[page_number-1]
+        width, height = selected_page.rect.width, selected_page.rect.height
+        selected_rect = pymupdf.Rect(region[0]*width,region[1]*height,region[2]*width,region[3]*height)
+        candidates = []
+        counts = {}
+        for page in doc:
+            for block in page.get_text('dict')['blocks']:
+                for line in block.get('lines', []):
+                    for span in line['spans']:
+                        text = span['text'].strip()
+                        if not text:
+                            continue
+                        counts[text] = counts.get(text,0)+1
+                        if page.number != page_number-1:
+                            continue
+                        rect = pymupdf.Rect(span['bbox']) * page.rotation_matrix
+                        intersection = rect & selected_rect
+                        if rect.get_area() > 0 and intersection.get_area()/rect.get_area() >= 0.5:
+                            candidates.append({'text': text, 'occurrence': counts[text]})
+        if not candidates:
+            raise ValueError('No complete text found in the selected area. Draw around the whole value, or use the OCR editor for a scan.')
+        return {'matches': candidates, 'page': page_number}
+
+
 class Handler(BaseHTTPRequestHandler):
+    allowed_origins = {'http://127.0.0.1:8000', 'http://localhost:8000'}
     def reply(self, status, payload, kind='application/json'):
         body = json.dumps(payload).encode() if kind == 'application/json' else payload
         self.send_response(status)
@@ -151,6 +183,8 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
+        if self.path == '/selection.js':
+            return self.reply(200, Path(__file__).with_name('selection.js').read_bytes(), 'text/javascript; charset=utf-8')
         if self.path == '/scan':
             return self.reply(200, Path(__file__).with_name('scan.html').read_bytes(), 'text/html; charset=utf-8')
         if self.path == '/':
@@ -159,7 +193,7 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(404, {'error': 'Not found'})
 
     def do_POST(self):
-        if self.headers.get('Origin') not in (None, 'http://127.0.0.1:8000', 'http://localhost:8000'):
+        if self.headers.get('Origin') is not None and self.headers.get('Origin') not in self.allowed_origins:
             return self.reply(403, {'error': 'Origin not allowed'})
         try:
             length = int(self.headers.get('Content-Length', '0'))
@@ -168,12 +202,20 @@ class Handler(BaseHTTPRequestHandler):
             request = json.loads(self.rfile.read(length))
             data = base64.b64decode(request['pdf'], validate=True)
             page_number = int(request.get('page', 1))
+            if self.path == '/api/text/select':
+                return self.reply(200, select_text(data, page_number, request['region']))
             if self.path == '/api/ocr/preview':
                 from scan_editor import preview_scan
                 return self.reply(200, preview_scan(data, page_number, int(request.get('rotation', 0))))
             if self.path == '/api/ocr/find':
-                from scan_editor import locate_scan
-                return self.reply(200, locate_scan(data, request['old'].strip(), page_number, int(request.get('rotation', 0))))
+                from scan_editor import locate_document
+                return self.reply(200, locate_document(data, request['old'].strip(), int(request.get('rotation', 0))))
+            if self.path == '/api/ocr/selection':
+                from scan_editor import preview_selection
+                return self.reply(200, preview_selection(data, request['selection']))
+            if self.path == '/api/ocr/region':
+                from scan_editor import locate_region
+                return self.reply(200, locate_region(data, page_number, int(request.get('rotation', 0)), request['region']))
             if self.path == '/api/ocr/edit':
                 from scan_editor import edit_scan
                 return self.reply(200, edit_scan(data, request['new'].strip(), request['selection']))
@@ -192,5 +234,15 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == '__main__':
-    print('PDF editor: http://127.0.0.1:8000 (Ctrl+C to stop)', flush=True)
-    ThreadingHTTPServer(('127.0.0.1', 8000), Handler).serve_forever()
+    parser = argparse.ArgumentParser(description='PDF editor web server')
+    parser.add_argument('--host', default='127.0.0.1', help='Listen address; use 0.0.0.0 for LAN access')
+    parser.add_argument('--port', type=int, default=8000, help='Internal listening port')
+    parser.add_argument('--allowed-origin', action='append', default=[], help='Exact browser origin, such as https://pdf.example.com (repeatable)')
+    args = parser.parse_args()
+    if not 1 <= args.port <= 65535:
+        parser.error('Port must be between 1 and 65535.')
+    Handler.allowed_origins = {f'http://127.0.0.1:{args.port}', f'http://localhost:{args.port}'} | {value.rstrip('/') for value in args.allowed_origin}
+    print(f'PDF editor listening on {args.host}:{args.port} (Ctrl+C to stop)', flush=True)
+    if args.host == '0.0.0.0':
+        print('Open using this computer\'s LAN IP or the configured domain, not 0.0.0.0.', flush=True)
+    ThreadingHTTPServer((args.host, args.port), Handler).serve_forever()

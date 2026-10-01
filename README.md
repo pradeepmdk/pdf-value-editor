@@ -2,6 +2,8 @@
 
 Python serves both the website and the PDF editing API. No frontend build tools or external services are needed.
 
+For LAN or domain access, see [NETWORK.md](NETWORK.md). Both launchers accept `--host`, `--port`, and repeatable `--allowed-origin` arguments. Localhost remains the default.
+
 ## Run with Bash (Linux, macOS, or Git Bash on Windows)
 
 From the project root:
@@ -63,6 +65,16 @@ The tests use `BWA-ganzjaehrig-2025.pdf` in the parent folder. For a fresh envir
 
 ## Supported PDFs
 
+## Select text directly from a preview
+
+In either editor, drag a rectangle around a complete value or text in the original preview. In text mode, the current text is filled automatically and **One occurrence** is selected. If the area contains multiple text spans, choose one from **Text in selected area**. In OCR mode, only the selected crop is read, and detected text is shown with its page number. Choose the region, enter replacement text, confirm it, and create the edited PDF. Give scanned text some surrounding space when drawing a selection.
+
+OCR's **Find across whole PDF** searches every page for entered text and lists all confident matches with page numbers. Choosing a match automatically previews that page and highlights that region. Unsupported pages are reported. Full-document searches may take several minutes. The preview page number controls manual viewing, not search scope.
+
+Edited previews cannot be used for area selection because edits start from the uploaded original. Click **Show original to select another area** to return to the original preview. A new edit creates another copy from the original; it does not accumulate previous edits.
+
+### Supported text PDFs
+
 Both editors accept numbers, letters, and mixed single-line text. Direct text mode changes exact complete literal text strings in supported standard fonts. It retains PDF drawing commands, fonts, and text starting positions. Longer replacements use a reduced font size to fit the original width; shorter text starts at the original position. Only the chosen text changes; calculations and totals are not updated.
 
 Direct text mode does not support scans, custom/encoded fonts, text split across operators, or password-protected PDFs. Western European characters supported by the font encoding are accepted; arbitrary Unicode scripts require additional font support. Replacements too long to remain legible are rejected. Some unrelated PDFs may have no editable match even when the text is visible. Review edited documents before use. The source file is never overwritten.
@@ -71,7 +83,7 @@ Direct text mode does not support scans, custom/encoded fonts, text split across
 
 Examples: `373,00S` → `473,00S`, `373,00S` → `Invoice 1`, or `AB Service GmbH` → `AB Service Ltd`. Enter a complete OCR text region exactly, including case and punctuation. When both inputs are numbers without suffixes, an existing S/H marker is retained. Otherwise the entered replacement text replaces the entire selected region, including any suffix.
 
-The scan preview loads automatically after upload, before entering any values or running OCR. Changing the page number or OCR rotation updates the preview. Type the current value shown in the preview; gray example text in the input is a placeholder, not an entered value.
+All scan pages load automatically after upload in one scrollable preview. Each page has a page number and supports drag selection when editable. Changing OCR rotation reloads all previews. Selecting a search result highlights and scrolls to its page. Unsupported pages still have a preview but cannot be selected for OCR editing. Gray example text in the input is a placeholder, not an entered value.
 
 Install/update all dependencies first:
 

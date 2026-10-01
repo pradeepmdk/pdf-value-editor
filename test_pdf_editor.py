@@ -4,7 +4,7 @@ from pathlib import Path
 import numpy as np
 import pymupdf
 
-from pdf_editor import edit_pdf
+from pdf_editor import edit_pdf, select_text
 
 
 class PDFEditorTests(unittest.TestCase):
@@ -52,6 +52,14 @@ class PDFEditorTests(unittest.TestCase):
         result, count, _ = edit_pdf(self.source, '52.315,78', 'Invoice 123', 1)
         with pymupdf.open(stream=result, filetype='pdf') as doc:
             self.assertIn('Invoice 123', doc[0].get_text())
+
+    def test_rotated_area_selects_second_occurrence(self):
+        with pymupdf.open(stream=self.source, filetype='pdf') as doc:
+            page = doc[0]
+            rect = page.search_for('52.315,78')[1] * page.rotation_matrix
+            region = [rect.x0/page.rect.width,rect.y0/page.rect.height,rect.x1/page.rect.width,rect.y1/page.rect.height]
+        selected = select_text(self.source, 1, region)
+        self.assertEqual(selected['matches'], [{'text':'52.315,78','occurrence':2}])
 
 
 if __name__ == '__main__':

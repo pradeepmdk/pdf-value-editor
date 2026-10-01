@@ -35,7 +35,7 @@ if errorlevel 1 (
 
 echo Open http://127.0.0.1:8000 in your browser.
 echo Keep this window open. Press Ctrl+C to stop the app.
-"%EDITOR_PYTHON%" pdf_editor.py
+"%EDITOR_PYTHON%" pdf_editor.py %*
 if errorlevel 1 (
     echo The application stopped. If port 8000 is already in use, close the existing app first.
     pause

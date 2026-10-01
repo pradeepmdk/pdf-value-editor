@@ -13,6 +13,10 @@
 - Accept numbers, letters, and mixed single-line text in both editors. Change only the exact text and occurrences selected by the user.
 - Preserve page dimensions, rotation, fonts, text positions, lines, tables, and other content. Longer replacements may use a reduced font size to fit the original region; keep other text unchanged and disclose this behavior.
 - Do not recalculate dependent values or totals unless explicitly requested.
+- Recalculation is authorized in the dedicated BWA finance workflow. Validate the source structure and formulas, use Decimal, preview all dependent changes, preserve unrelated cells, and verify the saved PDF against the same rules. Reject unsupported formats and unexplained source discrepancies.
+- Model classifications are advisory only. Never let Jev or a local LLM silently replace formulas, calculate authoritative amounts, or apply unreviewed accounting interpretations.
+- The user requires advance notice before choosing or using a new LLM. Do not install, download, configure, or invoke a new model without the user's approval. Existing RapidOCR usage is authorized; the optional local LLM connector remains unused until a model is explicitly selected.
+- General statement rules must be user-reviewed and match original printed values before recalculation. Never claim universal automatic formula recognition. General-format image export requires its explicit UI consent; preserve untouched pages and explain loss of searchable text/features on changed pages.
 - Preserve the user's number separators exactly. Do not silently normalize input.
 - Direct text mode must reject scans, encodings, split text, and replacements that cannot preserve layout safely. Explain the limitation in the UI.
 - OCR mode is authorized for scanned PDFs. Require a confident exact OCR match and explicit selection; preserve source image pixels outside the selected region and keep image placement and other pages unchanged. Replacement fonts are approximate; expose that limitation and require preview review.

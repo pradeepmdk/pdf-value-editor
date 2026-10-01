@@ -183,6 +183,10 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
+        if self.path == '/general':
+            return self.reply(200, Path(__file__).with_name('general.html').read_bytes(), 'text/html; charset=utf-8')
+        if self.path == '/finance':
+            return self.reply(200, Path(__file__).with_name('finance.html').read_bytes(), 'text/html; charset=utf-8')
         if self.path == '/selection.js':
             return self.reply(200, Path(__file__).with_name('selection.js').read_bytes(), 'text/javascript; charset=utf-8')
         if self.path == '/scan':
@@ -202,6 +206,32 @@ class Handler(BaseHTTPRequestHandler):
             request = json.loads(self.rfile.read(length))
             data = base64.b64decode(request['pdf'], validate=True)
             page_number = int(request.get('page', 1))
+            if self.path == '/api/general/analyze':
+                from general_finance import signed_extract
+                return self.reply(200,signed_extract(data,request.get('locale','de'),int(request.get('rotation',0))))
+            if self.path in ('/api/general/plan','/api/general/apply','/api/general/preview'):
+                from general_finance import validate_analysis,calculate,render_changes,preview_cell
+                extracted=validate_analysis(data,request['analysis'])
+                if self.path.endswith('/preview'):
+                    return self.reply(200,preview_cell(data,extracted,request['id']))
+                if self.path.endswith('/plan'):
+                    return self.reply(200,calculate(extracted,request['edits'],request['rules']))
+                output,result=render_changes(data,extracted,request['edits'],request['rules'],request.get('allow_raster') is True)
+                return self.reply(200,{'pdf':base64.b64encode(output).decode(),**result})
+            if self.path == '/api/finance/analyze':
+                from finance import analyze
+                return self.reply(200, analyze(data))
+            if self.path == '/api/finance/plan':
+                from finance import plan
+                return self.reply(200, plan(data, request['edits']))
+            if self.path == '/api/finance/apply':
+                from finance import apply
+                output, changes = apply(data, request['edits'])
+                png, pages = preview(output)
+                return self.reply(200, {'pdf':base64.b64encode(output).decode(),'image':png,'pages':pages,'changes':changes})
+            if self.path == '/api/finance/local-review':
+                from local_review import review
+                return self.reply(200, review(data))
             if self.path == '/api/text/select':
                 return self.reply(200, select_text(data, page_number, request['region']))
             if self.path == '/api/ocr/preview':

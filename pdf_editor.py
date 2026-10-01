@@ -1,0 +1,169 @@
+"""Local PDF value editor. Run: python pdf_editor.py"""
+import base64
+import json
+import re
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+
+import pymupdf
+
+MAX_REQUEST = 30 * 1024 * 1024
+TOKEN = re.compile(rb'\((?:\\.|[^\\)])*\)|/[^\s/\[\]()<>]+|-?\d*\.?\d+|[A-Za-z*\x27\"]+|\S')
+BASE14 = {"Helvetica": "helv", "Helvetica-Bold": "hebo", "Helvetica-Oblique": "heit", "Helvetica-BoldOblique": "hebi", "Times-Roman": "tiro", "Times-Bold": "tibo", "Courier": "cour", "Courier-Bold": "cobo"}
+
+
+def decode_literal(raw):
+    result = bytearray()
+    i = 0
+    escapes = {110: 10, 114: 13, 116: 9, 98: 8, 102: 12}
+    while i < len(raw):
+        if raw[i] != 92:
+            result.append(raw[i]); i += 1; continue
+        i += 1
+        if i >= len(raw):
+            break
+        match = re.match(rb'[0-7]{1,3}', raw[i:])
+        if match:
+            result.append(int(match.group(), 8) & 255); i += len(match.group())
+        elif raw[i] in (10, 13):
+            if raw[i:i+2] == b'\r\n': i += 1
+            i += 1
+        else:
+            result.append(escapes.get(raw[i], raw[i])); i += 1
+    return bytes(result)
+
+
+def edit_pdf(data, old, new, occurrence=0):
+    """Replace numeric literal Tj values, keeping their right edges fixed.
+
+    Deliberately rejects encoded/custom fonts, split text, and scanned PDFs.
+    occurrence=0 means all; positive values select one match in document order.
+    """
+    numeric = re.compile(r'-?\d+(?:[.,]\d+)*')
+    if not numeric.fullmatch(old) or not numeric.fullmatch(new):
+        raise ValueError('Enter numeric values only, for example 52.315,78 and 62.315,78.')
+    if old == new:
+        raise ValueError('The new value must differ from the old value.')
+    if occurrence < 0:
+        raise ValueError('Occurrence must be zero (all) or a positive number.')
+    doc = pymupdf.open(stream=data, filetype='pdf')
+    try:
+        if doc.is_encrypted:
+            raise ValueError('Password-protected PDFs are not supported.')
+        matches = []
+        for page in doc:
+            font_map = {f[4]: f[3] for f in page.get_fonts()}
+            stream = page.read_contents()
+            tokens = list(TOKEN.finditer(stream))
+            font_name = None
+            size = 0
+            char_spacing = word_spacing = 0.0
+            scale = 100.0
+            stack = []
+            patches = []
+            for i, token in enumerate(tokens):
+                value = token.group()
+                if value == b'q':
+                    stack.append((font_name, size, char_spacing, word_spacing, scale))
+                elif value == b'Q' and stack:
+                    font_name, size, char_spacing, word_spacing, scale = stack.pop()
+                elif value == b'Tf' and i >= 2:
+                    font_name = font_map.get(tokens[i-2].group().decode('ascii').lstrip('/'))
+                    size = float(tokens[i-1].group())
+                elif value in (b'Tc', b'Tw', b'Tz') and i:
+                    number = float(tokens[i-1].group())
+                    if value == b'Tc': char_spacing = number
+                    if value == b'Tw': word_spacing = number
+                    if value == b'Tz': scale = number
+                elif value == b'Tj' and i and tokens[i-1].group().startswith(b'('):
+                    literal = tokens[i-1]
+                    raw = decode_literal(literal.group()[1:-1])
+                    if raw.strip() != old.encode('ascii'):
+                        continue
+                    matches.append(page.number + 1)
+                    if occurrence and len(matches) != occurrence:
+                        continue
+                    if font_name not in BASE14 or size <= 0:
+                        raise ValueError('This value uses an unsupported font encoding. Direct editing is unavailable for this PDF.')
+                    replacement = raw.replace(old.encode('ascii'), new.encode('ascii'))
+                    before = raw.decode('ascii'); after = replacement.decode('ascii')
+                    delta = (pymupdf.get_text_length(before, fontname=BASE14[font_name], fontsize=size)
+                             - pymupdf.get_text_length(after, fontname=BASE14[font_name], fontsize=size)
+                             + char_spacing * (len(before) - len(after))
+                             + word_spacing * (before.count(' ') - after.count(' '))) * scale / 100
+                    if abs(delta) > 0.00001:
+                        raise ValueError('Different-length values are not supported safely yet. Use the same number of digits to preserve the layout.')
+                    patches.append((literal.start(), token.end(), b'(' + replacement + b')Tj'))
+            if patches:
+                for start, end, replacement in reversed(patches):
+                    stream = stream[:start] + replacement + stream[end:]
+                refs = page.get_contents()
+                doc.update_stream(refs[0], stream)
+                for xref in refs[1:]:
+                    doc.update_stream(xref, b'')
+        if not matches:
+            raise ValueError('No editable exact match found. Scans, split text, and encoded fonts are not supported.')
+        if occurrence > len(matches):
+            raise ValueError(f'Only {len(matches)} occurrence(s) found.')
+        output = doc.tobytes(garbage=3, deflate=True)
+        count = 1 if occurrence else len(matches)
+        return output, count, sorted(set(matches))
+    finally:
+        doc.close()
+
+
+def preview(data, page_number=1):
+    with pymupdf.open(stream=data, filetype='pdf') as doc:
+        if doc.is_encrypted:
+            raise ValueError('Password-protected PDFs are not supported.')
+        if not 1 <= page_number <= len(doc):
+            raise ValueError('Invalid page number.')
+        page = doc[page_number - 1]
+        scale = min(1.5, 1600 / max(page.rect.width, page.rect.height))
+        png = page.get_pixmap(matrix=pymupdf.Matrix(scale, scale), alpha=False).tobytes('png')
+        return base64.b64encode(png).decode(), len(doc)
+
+
+class Handler(BaseHTTPRequestHandler):
+    def reply(self, status, payload, kind='application/json'):
+        body = json.dumps(payload).encode() if kind == 'application/json' else payload
+        self.send_response(status)
+        self.send_header('Content-Type', kind)
+        self.send_header('Content-Length', str(len(body)))
+        self.send_header('Cache-Control', 'no-store')
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self):
+        if self.path == '/':
+            self.reply(200, Path(__file__).with_name('editor.html').read_bytes(), 'text/html; charset=utf-8')
+        else:
+            self.reply(404, {'error': 'Not found'})
+
+    def do_POST(self):
+        if self.headers.get('Origin') not in (None, 'http://127.0.0.1:8000', 'http://localhost:8000'):
+            return self.reply(403, {'error': 'Origin not allowed'})
+        try:
+            length = int(self.headers.get('Content-Length', '0'))
+            if not 0 < length <= MAX_REQUEST:
+                return self.reply(413, {'error': 'Upload a PDF smaller than 20 MB.'})
+            request = json.loads(self.rfile.read(length))
+            data = base64.b64decode(request['pdf'], validate=True)
+            page_number = int(request.get('page', 1))
+            if self.path == '/api/preview':
+                png, pages = preview(data, page_number)
+                return self.reply(200, {'image': png, 'pages': pages})
+            if self.path == '/api/edit':
+                output, count, pages_changed = edit_pdf(data, request['old'].strip(), request['new'].strip(), int(request.get('occurrence', 0)))
+                png, pages = preview(output, pages_changed[0])
+                return self.reply(200, {'pdf': base64.b64encode(output).decode(), 'image': png, 'pages': pages, 'page': pages_changed[0], 'count': count, 'changed_pages': pages_changed})
+            self.reply(404, {'error': 'Not found'})
+        except (ValueError, KeyError, TypeError, pymupdf.FileDataError) as exc:
+            self.reply(400, {'error': str(exc)})
+        except Exception:
+            self.reply(500, {'error': 'Unable to process this PDF.'})
+
+
+if __name__ == '__main__':
+    print('PDF editor: http://127.0.0.1:8000 (Ctrl+C to stop)', flush=True)
+    ThreadingHTTPServer(('127.0.0.1', 8000), Handler).serve_forever()

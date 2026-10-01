@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PDF Value Editor</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f3f5fa;color:#17243b;font:16px system-ui,sans-serif}main{max-width:1400px;margin:36px auto;padding:0 24px}h1{margin-bottom:8px}p{line-height:1.5;color:#52617a}.layout{display:grid;grid-template-columns:330px 1fr;gap:24px}.card{background:white;padding:24px;border:1px solid #dce2ec;border-radius:14px}label{display:block;font-weight:600;margin:18px 0 7px}input,select,button,a.download{width:100%;padding:12px;border:1px solid #cbd4e2;border-radius:8px;font:inherit}input[type=file]{font-size:13px}button,a.download{cursor:pointer;background:#255bce;color:white;border:0;margin-top:20px;text-decoration:none;display:block;text-align:center}button:disabled{opacity:.5;cursor:wait}.hint{font-size:13px}#status{white-space:pre-wrap;font-size:14px}#status.error{color:#b42318}#preview{width:100%;height:auto;display:block;margin-top:16px}#nav{display:flex;gap:12px;align-items:center}#nav button{width:auto;margin:0}#pageLabel{flex:1;text-align:center}[hidden]{display:none!important}@media(max-width:800px){.layout{grid-template-columns:1fr}main{padding:0 12px}}
+</style>
+<main><h1>PDF Value Editor</h1><p>Upload a PDF, replace a numeric value, and download an edited copy.</p>
+<div class="layout"><section class="card"><label for="file">PDF file</label><input id="file" type="file" accept="application/pdf,.pdf">
+<label for="old">Current value</label><input id="old" value="52.315,78">
+<label for="new">New value</label><input id="new" value="62.315,78">
+<p class="hint">Use the exact format shown in the PDF, including periods and commas. Keep the same number of digits.</p>
+<label for="scope">Replace</label><select id="scope"><option value="all">All exact occurrences</option><option value="one">One occurrence</option></select>
+<div id="occWrap" hidden><label for="occ">Occurrence number</label><input id="occ" type="number" value="1" min="1"><p class="hint">Counted in page and PDF text order.</p></div>
+<button id="edit" disabled>Create edited PDF</button><a id="download" class="download" hidden>Download edited PDF</a><p id="status" role="status" aria-live="polite">Choose a PDF to begin.</p>
+<p class="hint">Only the selected values change. Totals are not recalculated. This version supports standard-font text PDFs such as the sample BWA; scanned PDFs are unsupported. Files stay in memory in the local Python server.</p></section>
+<section class="card"><div id="nav"><button id="prev" disabled>Previous</button><span id="pageLabel">Preview</span><button id="next" disabled>Next</button></div><p id="previewLabel">Your PDF preview will appear here.</p><img id="preview" hidden alt="PDF page preview"></section></div></main>
+<script>
+const $=id=>document.getElementById(id);let original=null,current=null,page=1,pages=1,busy=false,url=null,edited=false;
+function state(message,error=false){$('status').textContent=message;$('status').className=error?'error':''}
+function controls(){ $('edit').disabled=busy||!original;$('file').disabled=busy;$('prev').disabled=busy||!current||page<=1;$('next').disabled=busy||!current||page>=pages; }
+function clearDownload(){if(url)URL.revokeObjectURL(url);url=null;$('download').hidden=true}
+async function api(path,data){const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const result=await response.json();if(!response.ok)throw Error(result.error);return result}
+function show(result){pages=result.pages;$('preview').src='data:image/png;base64,'+result.image;$('preview').hidden=false;$('pageLabel').textContent=`Page ${page} of ${pages}`;$('previewLabel').textContent=edited?'Edited PDF':'Original PDF'}
+async function loadPreview(){busy=true;controls();try{show(await api('/api/preview',{pdf:current,page}))}catch(e){state(e.message,true)}finally{busy=false;controls()}}
+$('file').onchange=async()=>{clearDownload();original=current=null;edited=false;$('preview').hidden=true;const file=$('file').files[0];if(!file){controls();return}if(file.size>20*1024*1024){state('Choose a PDF smaller than 20 MB.',true);controls();return}busy=true;controls();state('Loading PDF…');try{const buffer=new Uint8Array(await file.arrayBuffer());let binary='';for(let i=0;i<buffer.length;i+=32768)binary+=String.fromCharCode(...buffer.subarray(i,i+32768));original=current=btoa(binary);page=1;show(await api('/api/preview',{pdf:current,page}));state('Ready to edit.')}catch(e){original=current=null;state(e.message,true)}finally{busy=false;controls()}};
+$('scope').onchange=()=>{$('occWrap').hidden=$('scope').value==='all';clearDownload()};for(const id of ['old','new','occ'])$(id).oninput=clearDownload;
+$('edit').onclick=async()=>{busy=true;controls();clearDownload();state('Editing PDF…');try{const result=await api('/api/edit',{pdf:original,old:$('old').value,new:$('new').value,occurrence:$('scope').value==='all'?0:Number($('occ').value)});current=result.pdf;edited=true;page=result.page;show(result);const binary=atob(result.pdf),bytes=Uint8Array.from(binary,c=>c.charCodeAt(0));url=URL.createObjectURL(new Blob([bytes],{type:'application/pdf'}));$('download').href=url;$('download').download=$('file').files[0].name.replace(/\.pdf$/i,'')+'-edited.pdf';$('download').hidden=false;state(`Updated ${result.count} occurrence(s) on page(s) ${result.changed_pages.join(', ')}. Preview the result, then download.`)}catch(e){state(e.message,true)}finally{busy=false;controls()}};
+$('prev').onclick=()=>{page--;loadPreview()};$('next').onclick=()=>{page++;loadPreview()};
+</script></html>

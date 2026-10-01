@@ -28,7 +28,7 @@ if [[ -z "$editor_python" ]]; then
     fi
 fi
 
-if ! "$editor_python" -c 'import pymupdf' >/dev/null 2>&1; then
+if ! "$editor_python" -c 'import pymupdf, numpy, PIL, rapidocr_onnxruntime' >/dev/null 2>&1; then
     echo 'Installing required packages...'
     "$editor_python" -m pip install -r requirements.txt
 fi

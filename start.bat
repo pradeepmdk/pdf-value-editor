@@ -22,7 +22,7 @@ if exist ".venv\Scripts\python.exe" (
     set "EDITOR_PYTHON=%~dp0.venv\Scripts\python.exe"
 )
 
-"%EDITOR_PYTHON%" -c "import pymupdf" >nul 2>nul
+"%EDITOR_PYTHON%" -c "import pymupdf, numpy, PIL, rapidocr_onnxruntime" >nul 2>nul
 if errorlevel 1 (
     echo Installing required packages...
     "%EDITOR_PYTHON%" -m pip install -r requirements.txt

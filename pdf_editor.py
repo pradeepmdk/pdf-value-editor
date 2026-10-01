@@ -34,14 +34,17 @@ def decode_literal(raw):
 
 
 def edit_pdf(data, old, new, occurrence=0):
-    """Replace numeric literal Tj values, keeping their right edges fixed.
+    """Replace exact literal text, fitting replacement into the original width.
 
     Deliberately rejects encoded/custom fonts, split text, and scanned PDFs.
     occurrence=0 means all; positive values select one match in document order.
     """
-    numeric = re.compile(r'-?\d+(?:[.,]\d+)*')
-    if not numeric.fullmatch(old) or not numeric.fullmatch(new):
-        raise ValueError('Enter numeric values only, for example 52.315,78 and 62.315,78.')
+    if not old.strip() or not new.strip() or any(c in old + new for c in '\r\n\t'):
+        raise ValueError('Enter non-empty, single-line text or numbers.')
+    try:
+        old_bytes, new_bytes = old.encode('cp1252'), new.encode('cp1252')
+    except UnicodeEncodeError:
+        raise ValueError('This direct editor supports Western European characters; this font cannot encode the requested text.')
     if old == new:
         raise ValueError('The new value must differ from the old value.')
     if occurrence < 0:
@@ -56,6 +59,7 @@ def edit_pdf(data, old, new, occurrence=0):
             stream = page.read_contents()
             tokens = list(TOKEN.finditer(stream))
             font_name = None
+            font_resource = None
             size = 0
             char_spacing = word_spacing = 0.0
             scale = 100.0
@@ -64,11 +68,12 @@ def edit_pdf(data, old, new, occurrence=0):
             for i, token in enumerate(tokens):
                 value = token.group()
                 if value == b'q':
-                    stack.append((font_name, size, char_spacing, word_spacing, scale))
+                    stack.append((font_name, font_resource, size, char_spacing, word_spacing, scale))
                 elif value == b'Q' and stack:
-                    font_name, size, char_spacing, word_spacing, scale = stack.pop()
+                    font_name, font_resource, size, char_spacing, word_spacing, scale = stack.pop()
                 elif value == b'Tf' and i >= 2:
-                    font_name = font_map.get(tokens[i-2].group().decode('ascii').lstrip('/'))
+                    font_resource = tokens[i-2].group()
+                    font_name = font_map.get(font_resource.decode('ascii').lstrip('/'))
                     size = float(tokens[i-1].group())
                 elif value in (b'Tc', b'Tw', b'Tz') and i:
                     number = float(tokens[i-1].group())
@@ -78,22 +83,33 @@ def edit_pdf(data, old, new, occurrence=0):
                 elif value == b'Tj' and i and tokens[i-1].group().startswith(b'('):
                     literal = tokens[i-1]
                     raw = decode_literal(literal.group()[1:-1])
-                    if raw.strip() != old.encode('ascii'):
+                    if raw.strip() != old_bytes:
                         continue
                     matches.append(page.number + 1)
                     if occurrence and len(matches) != occurrence:
                         continue
                     if font_name not in BASE14 or size <= 0:
                         raise ValueError('This value uses an unsupported font encoding. Direct editing is unavailable for this PDF.')
-                    replacement = raw.replace(old.encode('ascii'), new.encode('ascii'))
-                    before = raw.decode('ascii'); after = replacement.decode('ascii')
+                    replacement = raw.replace(old_bytes, new_bytes, 1)
+                    before = raw.decode('cp1252'); after = replacement.decode('cp1252')
                     delta = (pymupdf.get_text_length(before, fontname=BASE14[font_name], fontsize=size)
                              - pymupdf.get_text_length(after, fontname=BASE14[font_name], fontsize=size)
                              + char_spacing * (len(before) - len(after))
                              + word_spacing * (before.count(' ') - after.count(' '))) * scale / 100
-                    if abs(delta) > 0.00001:
-                        raise ValueError('Different-length values are not supported safely yet. Use the same number of digits to preserve the layout.')
-                    patches.append((literal.start(), token.end(), b'(' + replacement + b')Tj'))
+                    escaped = replacement.replace(b'\\', b'\\\\').replace(b'(', b'\\(').replace(b')', b'\\)')
+                    replacement_command = b'(' + escaped + b')Tj'
+                    if delta < -0.00001:
+                        if char_spacing or word_spacing:
+                            raise ValueError('Longer text with custom character spacing cannot fit safely.')
+                        before_width = pymupdf.get_text_length(before, fontname=BASE14[font_name], fontsize=size)
+                        after_width = pymupdf.get_text_length(after, fontname=BASE14[font_name], fontsize=size)
+                        fitted_size = size * before_width / after_width
+                        if fitted_size < 3:
+                            raise ValueError('Replacement is too long to remain legible in the original space.')
+                        replacement_command = font_resource + f' {fitted_size:.6f} Tf '.encode() + replacement_command + b' ' + font_resource + f' {size:.6f} Tf'.encode()
+                    # Preserve existing text positioning. Shorter text starts at the
+                    # original position; longer text is reduced to fit the same width.
+                    patches.append((literal.start(), token.end(), replacement_command))
             if patches:
                 for start, end, replacement in reversed(patches):
                     stream = stream[:start] + replacement + stream[end:]
@@ -135,6 +151,8 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
+        if self.path == '/scan':
+            return self.reply(200, Path(__file__).with_name('scan.html').read_bytes(), 'text/html; charset=utf-8')
         if self.path == '/':
             self.reply(200, Path(__file__).with_name('editor.html').read_bytes(), 'text/html; charset=utf-8')
         else:
@@ -150,6 +168,15 @@ class Handler(BaseHTTPRequestHandler):
             request = json.loads(self.rfile.read(length))
             data = base64.b64decode(request['pdf'], validate=True)
             page_number = int(request.get('page', 1))
+            if self.path == '/api/ocr/preview':
+                from scan_editor import preview_scan
+                return self.reply(200, preview_scan(data, page_number, int(request.get('rotation', 0))))
+            if self.path == '/api/ocr/find':
+                from scan_editor import locate_scan
+                return self.reply(200, locate_scan(data, request['old'].strip(), page_number, int(request.get('rotation', 0))))
+            if self.path == '/api/ocr/edit':
+                from scan_editor import edit_scan
+                return self.reply(200, edit_scan(data, request['new'].strip(), request['selection']))
             if self.path == '/api/preview':
                 png, pages = preview(data, page_number)
                 return self.reply(200, {'image': png, 'pages': pages})

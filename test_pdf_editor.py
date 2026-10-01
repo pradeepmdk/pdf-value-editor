@@ -38,9 +38,20 @@ class PDFEditorTests(unittest.TestCase):
             self.assertEqual(doc[0].get_text().count('62.315,78'), 1)
 
     def test_reject_unsafe_or_missing_values(self):
-        for old, new, occurrence in [('52.315,78', '162.315,78', 0), ('999.999,99', '888.888,88', 0), ('52.315,78', '62.315,78', 9)]:
+        for old, new, occurrence in [('52.315,78', '', 0), ('999.999,99', '888.888,88', 0), ('52.315,78', '62.315,78', 9)]:
             with self.assertRaises(ValueError):
                 edit_pdf(self.source, old, new, occurrence)
+
+    def test_mixed_text_and_pdf_string_escaping(self):
+        result, count, _ = edit_pdf(self.source, '52.315,78', 'Test (A)', 1)
+        with pymupdf.open(stream=result, filetype='pdf') as doc:
+            self.assertEqual(count, 1)
+            self.assertIn('Test (A)', doc[0].get_text())
+
+    def test_longer_text_fits(self):
+        result, count, _ = edit_pdf(self.source, '52.315,78', 'Invoice 123', 1)
+        with pymupdf.open(stream=result, filetype='pdf') as doc:
+            self.assertIn('Invoice 123', doc[0].get_text())
 
 
 if __name__ == '__main__':

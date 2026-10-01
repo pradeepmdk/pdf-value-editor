@@ -10,11 +10,12 @@
 
 ## PDF fidelity
 
-- Change only the exact numeric values and occurrences selected by the user.
-- Preserve page dimensions, rotation, fonts, text positions, lines, tables, and other content.
+- Accept numbers, letters, and mixed single-line text in both editors. Change only the exact text and occurrences selected by the user.
+- Preserve page dimensions, rotation, fonts, text positions, lines, tables, and other content. Longer replacements may use a reduced font size to fit the original region; keep other text unchanged and disclose this behavior.
 - Do not recalculate dependent values or totals unless explicitly requested.
 - Preserve the user's number separators exactly. Do not silently normalize input.
-- Reject unsupported scans, encodings, split text, and replacements that cannot preserve layout safely. Explain the limitation in the UI.
+- Direct text mode must reject scans, encodings, split text, and replacements that cannot preserve layout safely. Explain the limitation in the UI.
+- OCR mode is authorized for scanned PDFs. Require a confident exact OCR match and explicit selection; preserve source image pixels outside the selected region and keep image placement and other pages unchanged. Replacement fonts are approximate; expose that limitation and require preview review.
 - Do not substitute rasterized pages, white rectangles, or reconstructed layouts for direct text editing without explicit authorization.
 
 ## Backend and frontend

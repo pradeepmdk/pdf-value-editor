@@ -5,14 +5,15 @@
 *{box-sizing:border-box}body{margin:0;background:#f3f5fa;color:#17243b;font:16px system-ui,sans-serif}main{max-width:1400px;margin:36px auto;padding:0 24px}h1{margin-bottom:8px}p{line-height:1.5;color:#52617a}.layout{display:grid;grid-template-columns:330px 1fr;gap:24px}.card{background:white;padding:24px;border:1px solid #dce2ec;border-radius:14px}label{display:block;font-weight:600;margin:18px 0 7px}input,select,button,a.download{width:100%;padding:12px;border:1px solid #cbd4e2;border-radius:8px;font:inherit}input[type=file]{font-size:13px}button,a.download{cursor:pointer;background:#255bce;color:white;border:0;margin-top:20px;text-decoration:none;display:block;text-align:center}button:disabled{opacity:.5;cursor:wait}.hint{font-size:13px}#status{white-space:pre-wrap;font-size:14px}#status.error{color:#b42318}#preview{width:100%;height:auto;display:block;margin-top:16px}#nav{display:flex;gap:12px;align-items:center}#nav button{width:auto;margin:0}#pageLabel{flex:1;text-align:center}[hidden]{display:none!important}@media(max-width:800px){.layout{grid-template-columns:1fr}main{padding:0 12px}}
 </style>
 <main><h1>PDF Value Editor</h1><p>Upload a PDF, replace a numeric value, and download an edited copy.</p>
+<a href="/scan" style="display:inline-block;padding:12px 20px;margin:0 0 24px;background:#255bce;color:white;border-radius:8px;text-decoration:none;font-weight:600">Open scanned PDF / OCR editor →</a>
 <div class="layout"><section class="card"><label for="file">PDF file</label><input id="file" type="file" accept="application/pdf,.pdf">
 <label for="old">Current value</label><input id="old" value="52.315,78">
 <label for="new">New value</label><input id="new" value="62.315,78">
-<p class="hint">Use the exact format shown in the PDF, including periods and commas. Keep the same number of digits.</p>
+<p class="hint">Numbers, letters, and mixed text are accepted. Enter the exact text shown in the PDF. Longer replacements use a smaller font to fit the original space.</p>
 <label for="scope">Replace</label><select id="scope"><option value="all">All exact occurrences</option><option value="one">One occurrence</option></select>
 <div id="occWrap" hidden><label for="occ">Occurrence number</label><input id="occ" type="number" value="1" min="1"><p class="hint">Counted in page and PDF text order.</p></div>
 <button id="edit" disabled>Create edited PDF</button><a id="download" class="download" hidden>Download edited PDF</a><p id="status" role="status" aria-live="polite">Choose a PDF to begin.</p>
-<p class="hint">Only the selected values change. Totals are not recalculated. This version supports standard-font text PDFs such as the sample BWA; scanned PDFs are unsupported. Files stay in memory in the local Python server.</p></section>
+<p class="hint">Only the selected values change. Totals are not recalculated. This mode supports standard-font text PDFs such as the sample BWA. Use the OCR editor for scans. Files stay in memory in the local Python server.</p></section>
 <section class="card"><div id="nav"><button id="prev" disabled>Previous</button><span id="pageLabel">Preview</span><button id="next" disabled>Next</button></div><p id="previewLabel">Your PDF preview will appear here.</p><img id="preview" hidden alt="PDF page preview"></section></div></main>
 <script>
 const $=id=>document.getElementById(id);let original=null,current=null,page=1,pages=1,busy=false,url=null,edited=false;

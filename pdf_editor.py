@@ -1,6 +1,7 @@
 """Local PDF value editor. Run: python pdf_editor.py"""
 import base64
 import argparse
+import html
 import json
 import re
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -183,10 +184,18 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
+        if self.path == '/api/finance/ai-status':
+            from ai_rules import status
+            return self.reply(200,status())
         if self.path == '/general':
-            return self.reply(200, Path(__file__).with_name('general.html').read_bytes(), 'text/html; charset=utf-8')
+            self.send_response(302)
+            self.send_header('Location','/finance')
+            self.end_headers()
+            return
         if self.path == '/finance':
-            return self.reply(200, Path(__file__).with_name('finance.html').read_bytes(), 'text/html; charset=utf-8')
+            general=Path(__file__).with_name('general.html').read_text(encoding='utf-8')
+            finance=Path(__file__).with_name('finance.html').read_text(encoding='utf-8').replace('__GENERAL_PANEL__',html.escape(general,quote=True))
+            return self.reply(200,finance.encode(),'text/html; charset=utf-8')
         if self.path == '/selection.js':
             return self.reply(200, Path(__file__).with_name('selection.js').read_bytes(), 'text/javascript; charset=utf-8')
         if self.path == '/scan':
@@ -206,12 +215,20 @@ class Handler(BaseHTTPRequestHandler):
             request = json.loads(self.rfile.read(length))
             data = base64.b64decode(request['pdf'], validate=True)
             page_number = int(request.get('page', 1))
+            if self.path == '/api/finance/prepare':
+                from upload import prepare
+                result=prepare(data)
+                result['pdf']=base64.b64encode(result['pdf']).decode()
+                return self.reply(200,result)
             if self.path == '/api/general/analyze':
                 from general_finance import signed_extract
                 return self.reply(200,signed_extract(data,request.get('locale','de'),int(request.get('rotation',0))))
-            if self.path in ('/api/general/plan','/api/general/apply','/api/general/preview'):
+            if self.path in ('/api/general/plan','/api/general/apply','/api/general/preview','/api/general/suggest'):
                 from general_finance import validate_analysis,calculate,render_changes,preview_cell
                 extracted=validate_analysis(data,request['analysis'])
+                if self.path.endswith('/suggest'):
+                    from ai_rules import suggest
+                    return self.reply(200,suggest(extracted))
                 if self.path.endswith('/preview'):
                     return self.reply(200,preview_cell(data,extracted,request['id']))
                 if self.path.endswith('/plan'):

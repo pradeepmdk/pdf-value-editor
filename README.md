@@ -4,7 +4,7 @@ Python serves both the website and the PDF editing API. No frontend build tools 
 
 For **automatic BWA subtotal/result/annual-total recalculation**, open `/finance` and read [FINANCE.md](FINANCE.md). The supported BWA rules work locally without AI. An optional Ollama connector reviews row classifications without modifying formulas.
 
-For other financial PDF formats, open `/general` and read [GENERAL_FINANCE.md](GENERAL_FINANCE.md). Extract amounts across the PDF and define reviewed calculation rules. Image-based export of changed pages requires explicit consent; arbitrary statement formulas are not guessed.
+For all financial formats, use the single `/finance` screen and read [GENERAL_FINANCE.md](GENERAL_FINANCE.md). Text PDFs, scanned PDFs, and images are accepted there. The original upload is transferred automatically to OCR / reviewed-rule mode for unsupported BWA formats. Image-based export of changed pages requires explicit consent; arbitrary statement formulas are not guessed.
 
 For LAN or domain access, see [NETWORK.md](NETWORK.md). Both launchers accept `--host`, `--port`, and repeatable `--allowed-origin` arguments. Localhost remains the default.
 

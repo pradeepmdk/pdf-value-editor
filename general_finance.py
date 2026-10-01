@@ -59,12 +59,16 @@ def extract(data,locale='de',rotation=0):
                 pix=page.get_pixmap(matrix=pymupdf.Matrix(scale,scale),alpha=False,annots=False)
                 image=Image.open(io.BytesIO(pix.tobytes('png'))).convert('RGB').rotate(-rotation,expand=True)
                 if image.width*image.height>25_000_000:raise ValueError('Page exceeds OCR size limit.')
-                for box,text,confidence in _ocr(image):
+                ocr_results=_ocr(image)
+                for box,text,confidence in ocr_results:
                     try:value,suffix=parse_amount(text.strip(),locale)
                     except ValueError:continue
                     if confidence<0.85:continue
                     xs=[p[0] for p in box];ys=[p[1] for p in box]
-                    cells.append({'id':f'c{len(cells)+1}','page':page.number+1,'text':text.strip(),'value':str(value),'suffix':suffix,'context':f'OCR region ({round(confidence*100)}% confidence)','box':[min(xs)/scale,min(ys)/scale,max(xs)/scale,max(ys)/scale],'mode':'ocr','rotation':rotation})
+                    center_y=sum(ys)/len(ys)
+                    row_context=sorted([(min(p[0] for p in other_box),other_text) for other_box,other_text,other_score in ocr_results if other_score>=0.75 and abs(sum(p[1] for p in other_box)/len(other_box)-center_y)<=max(12,(max(ys)-min(ys))*.8)])
+                    context=' | '.join(t for _,t in row_context)[:500]
+                    cells.append({'id':f'c{len(cells)+1}','page':page.number+1,'text':text.strip(),'value':str(value),'suffix':suffix,'context':context or f'OCR region ({round(confidence*100)}% confidence)','box':[min(xs)/scale,min(ys)/scale,max(xs)/scale,max(ys)/scale],'mode':'ocr','rotation':rotation})
                 notes.append(f'Page {page.number+1}: amounts extracted with OCR; verify every selected value and region.')
         if not cells:raise ValueError('No amounts with two decimals found. Check number format and scan rotation.')
         return {'pages':len(doc),'cells':cells,'locale':locale,'notes':notes,'automatic_rules':False}

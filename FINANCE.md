@@ -1,6 +1,8 @@
 # BWA recalculation and optional local AI
 
-Open `/finance`, or click **BWA analysis & automatic recalculation** on the main page. Upload the original one-page annual DATEV BWA 01 text PDF. The app extracts all 32 rows and checks monthly formulas and annual sums before enabling edits.
+Open `/finance`, or click **Financial analysis & recalculation** on the main page. This is the single URL for text PDFs, scanned PDFs, and uploaded images. The upload is checked automatically: supported annual BWA text PDFs use verified automatic rules; scans, images, and other formats switch to the embedded OCR / reviewed-rule workflow without changing the URL or asking for a second upload. The two mode buttons also allow manual switching.
+
+For supported BWA text PDFs, the app extracts all 32 rows and checks monthly formulas and annual sums before enabling edits. For other documents, choose number format and scan rotation, inspect the original document preview, click **Analyze whole document**, review amounts, and define calculation rules. See [GENERAL_FINANCE.md](GENERAL_FINANCE.md). OCR uses the existing local RapidOCR neural models; arithmetic uses Python Decimal. No Jev or new LLM is invoked by these workflows.
 
 Choose a monthly input row and month, enter a new EUR amount such as `62.315,78`, and click **Preview affected amounts**. Review the before/after list. Then click **Create recalculated PDF** and inspect/download the result. The source PDF is preserved. Each operation starts from the uploaded original. The Python API accepts multiple input edits in a single recalculation, while the current website handles one input edit per operation.
 

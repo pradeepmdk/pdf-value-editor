@@ -38,7 +38,17 @@ def _image(doc, page_number, rotation):
 
 
 def _signature(candidate):
-    return hmac.new(_secret, json.dumps(candidate, sort_keys=True).encode(), hashlib.sha256).hexdigest()
+    # JavaScript serializes 50.0 as 50. Canonicalize integral floats so a
+    # browser JSON round trip cannot invalidate otherwise unchanged data.
+    def canonical(value):
+        if isinstance(value, dict):
+            return {key: canonical(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [canonical(item) for item in value]
+        if isinstance(value, float) and math.isfinite(value) and value.is_integer():
+            return int(value)
+        return value
+    return hmac.new(_secret, json.dumps(canonical(candidate), sort_keys=True, allow_nan=False).encode(), hashlib.sha256).hexdigest()
 
 
 def _preview(image):

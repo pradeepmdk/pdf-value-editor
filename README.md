@@ -2,9 +2,11 @@
 
 Python serves both the website and the PDF editing API. No frontend build tools or external services are needed.
 
-For **automatic BWA subtotal/result/annual-total recalculation**, open `/finance` and read [FINANCE.md](FINANCE.md). The supported BWA rules work locally without AI. An optional Ollama connector reviews row classifications without modifying formulas.
+AI analysis uses OpenRouter. Put `OPEN_ROUTER_KEY=your-key` (or `OPENROUTER_API_KEY`) in this folder's `.env` and restart. `.env` is ignored by Git; keys remain server-side. No additional dependencies are required. In `/finance`, click **Analyze document**, select an input, enter its replacement and click **Identify affected fields**. This sends extracted context and positions to OpenRouter and incurs API usage. The model is the configured decision model, using the decision API. Review its selected dependency formulas and confidence, accept them, and verify the affected amounts before export. Recognized statement tables use source-validated candidates and send relevant fields only; general candidate discovery supports up to 150 amounts and bounded request size. Confidence is advisory and has not been calibrated on these financial documents.
 
-For all financial formats, use the single `/finance` screen and read [GENERAL_FINANCE.md](GENERAL_FINANCE.md). Text PDFs, scanned PDFs, and images are accepted there. The original upload is transferred automatically to OCR / reviewed-rule mode for unsupported BWA formats. Image-based export of changed pages requires explicit consent; arbitrary statement formulas are not guessed.
+Open `/finance` for the single financial workflow: upload, analyze, change an input, let AI select affected dependencies, accept reviewed relationships, verify changes and export. There is no format-mode switch or local-model selector. Python validates source structure and computes amounts with Decimal. Recognized editable statements preserve original PDF fonts and drawing commands; other documents require explicit image-export consent. Unsupported dependencies remain unresolved rather than guessed.
+
+Text PDFs, scanned PDFs and images share the same controls. Read [GENERAL_FINANCE.md](GENERAL_FINANCE.md) for dependency and image-export limitations. Source discrepancies block supported statement recalculation; incomplete reviewed dependency coverage blocks its export.
 
 For LAN or domain access, see [NETWORK.md](NETWORK.md). Both launchers accept `--host`, `--port`, and repeatable `--allowed-origin` arguments. Localhost remains the default.
 
@@ -69,6 +71,8 @@ The tests use `BWA-ganzjaehrig-2025.pdf` in the parent folder. For a fresh envir
 
 ## Supported PDFs
 
+To identify downstream changes with AI, use **Identify affected fields** in the reviewed-rule workflow after entering a replacement amount. AI selects from baseline-verified dependency candidates; Python calculates and previews affected amounts. Accept the reviewed formula set, then verify changes before export. Unresolved or unsupported dependencies require manual rules; see [GENERAL_FINANCE.md](GENERAL_FINANCE.md) for candidate discovery limits. Tests: `..\.venv\Scripts\python.exe -m unittest test_finance_workflow -v`.
+
 ## Select text directly from a preview
 
 In either editor, drag a rectangle around a complete value or text in the original preview. In text mode, the current text is filled automatically and **One occurrence** is selected. If the area contains multiple text spans, choose one from **Text in selected area**. In OCR mode, only the selected crop is read, and detected text is shown with its page number. Choose the region, enter replacement text, confirm it, and create the edited PDF. Give scanned text some surrounding space when drawing a selection.
@@ -115,3 +119,5 @@ Path('edited.pdf').write_bytes(result)
 ```
 
 Use `occurrence=1` to edit the first occurrence only; the default `0` edits all matches. `/api/preview` and `/api/edit` accept JSON with a base64 `pdf` field. The website is in `editor.html`; backend and reusable editing function are in `pdf_editor.py`.
+
+Identify affected fields calls the configured AI for dependency review. Amounts come from the uploaded document. Recognized BWA layouts offer source-validated predefined formulas; other layouts use bounded candidate discovery. Run the backend with outbound HTTPS access to openrouter.ai; restricted sandbox launches can block sockets (Windows error 10013). Normal start.bat/start.sh launches do not use the agent sandbox. No rules or PDF edits are applied by a failed AI request.

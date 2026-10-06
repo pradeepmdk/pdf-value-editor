@@ -38,6 +38,24 @@ def _ocr(image):
     return result or []
 
 
+def _is_amount(text,locale):
+    try:parse_amount(text,locale);return True
+    except ValueError:return False
+
+
+def _label_and_column(items,box,locale):
+    """Row label = non-amount text left of the amount on the same row; column = nearest non-amount text above it."""
+    x0,y0,x1,y1=box;center=(y0+y1)/2
+    words=[(b,t) for b,t in items if t.strip() and not _is_amount(t,locale)]
+    row=sorted((b[0],t) for b,t in words if b[2]<=x0+2 and b[1]-2<=center<=b[3]+2)
+    above=[(b,t) for b,t in words if b[3]<=y0+2 and min(b[2],x1)>max(b[0],x0)]
+    column=''
+    if above:
+        nearest=max(b[3] for b,_ in above)
+        column=' '.join(t for b,t in sorted(above,key=lambda e:e[0][0]) if abs(b[3]-nearest)<=4)
+    return ' '.join(t for _,t in row)[:200],column[:120]
+
+
 def extract(data,locale='de',rotation=0):
     if locale not in ('de','en') or rotation not in (0,90,180,270):raise ValueError('Invalid number format or scan rotation.')
     cells=[];notes=[]
@@ -48,12 +66,14 @@ def extract(data,locale='de',rotation=0):
             groups={}
             for word in words:groups.setdefault((word[5],word[6]),[]).append(word)
             if words:
+                items=[(list(pymupdf.Rect(w[:4])*page.rotation_matrix),w[4]) for w in words]
                 for word in words:
                     try:value,suffix=parse_amount(word[4],locale)
                     except ValueError:continue
                     rect=pymupdf.Rect(word[:4])*page.rotation_matrix
                     line=' '.join(w[4] for w in groups[(word[5],word[6])])
-                    cells.append({'id':f'c{len(cells)+1}','page':page.number+1,'text':word[4],'value':str(value),'suffix':suffix,'context':line[:240],'box':list(rect),'mode':'text','rotation':0})
+                    label,column=_label_and_column(items,list(rect),locale)
+                    cells.append({'id':f'c{len(cells)+1}','page':page.number+1,'text':word[4],'value':str(value),'suffix':suffix,'context':line[:240],'label':label,'column':column,'box':list(rect),'mode':'text','rotation':0})
             else:
                 scale=min(2,2200/max(page.rect.width,page.rect.height))
                 pix=page.get_pixmap(matrix=pymupdf.Matrix(scale,scale),alpha=False,annots=False)
@@ -68,7 +88,9 @@ def extract(data,locale='de',rotation=0):
                     center_y=sum(ys)/len(ys)
                     row_context=sorted([(min(p[0] for p in other_box),other_text) for other_box,other_text,other_score in ocr_results if other_score>=0.75 and abs(sum(p[1] for p in other_box)/len(other_box)-center_y)<=max(12,(max(ys)-min(ys))*.8)])
                     context=' | '.join(t for _,t in row_context)[:500]
-                    cells.append({'id':f'c{len(cells)+1}','page':page.number+1,'text':text.strip(),'value':str(value),'suffix':suffix,'context':context or f'OCR region ({round(confidence*100)}% confidence)','box':[min(xs)/scale,min(ys)/scale,max(xs)/scale,max(ys)/scale],'mode':'ocr','rotation':rotation})
+                    ocr_items=[([min(p[0] for p in b),min(p[1] for p in b),max(p[0] for p in b),max(p[1] for p in b)],t) for b,t,s in ocr_results if s>=0.75]
+                    label,column=_label_and_column(ocr_items,[min(xs),min(ys),max(xs),max(ys)],locale)
+                    cells.append({'id':f'c{len(cells)+1}','page':page.number+1,'text':text.strip(),'value':str(value),'suffix':suffix,'context':context or f'OCR region ({round(confidence*100)}% confidence)','label':label,'column':column,'box':[min(xs)/scale,min(ys)/scale,max(xs)/scale,max(ys)/scale],'mode':'ocr','rotation':rotation})
                 notes.append(f'Page {page.number+1}: amounts extracted with OCR; verify every selected value and region.')
         if not cells:raise ValueError('No amounts with two decimals found. Check number format and scan rotation.')
         return {'pages':len(doc),'cells':cells,'locale':locale,'notes':notes,'automatic_rules':False}

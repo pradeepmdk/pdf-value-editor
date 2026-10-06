@@ -1,10 +1,10 @@
-# BWA recalculation and optional local AI
+# Financial statement recalculation with AI
 
-Open `/finance`, or click **Financial analysis & recalculation** on the main page. This is the single URL for text PDFs, scanned PDFs, and uploaded images. The upload is checked automatically: supported annual BWA text PDFs use verified automatic rules; scans, images, and other formats switch to the embedded OCR / reviewed-rule workflow without changing the URL or asking for a second upload. The two mode buttons also allow manual switching.
+Open `/finance`, or click **Financial analysis & recalculation** on the main page. All PDFs, scans and images use one page and one sequence of controls. There are no mode buttons or local-model controls. Source recognition chooses extraction and export fidelity checks internally; AI selects candidate dependencies for human review.
 
-For supported BWA text PDFs, the app extracts all 32 rows and checks monthly formulas and annual sums before enabling edits. For other documents, choose number format and scan rotation, inspect the original document preview, click **Analyze whole document**, review amounts, and define calculation rules. See [GENERAL_FINANCE.md](GENERAL_FINANCE.md). OCR uses the existing local RapidOCR neural models; arithmetic uses Python Decimal. No Jev or new LLM is invoked by these workflows.
+Click **Analyze document**, select an input and enter its replacement, then click **Identify affected fields**. The configured AI service selects supported dependencies. It selects dependency relationships; Python validates original values and calculates exact amounts with Decimal. Review the proposals, click **Accept reviewed dependencies**, then **Verify rules & preview changes** before export. OCR uses existing RapidOCR. See [GENERAL_FINANCE.md](GENERAL_FINANCE.md) for unsupported relationships.
 
-Choose a monthly input row and month, enter a new EUR amount such as `62.315,78`, and click **Preview affected amounts**. Review the before/after list. Then click **Create recalculated PDF** and inspect/download the result. The source PDF is preserved. Each operation starts from the uploaded original. The Python API accepts multiple input edits in a single recalculation, while the current website handles one input edit per operation.
+For the supported annual statement, extraction retains all 416 monthly/annual cells, rejects discrepancies, and offers source-validated formula candidates to AI for the affected graph. Export is blocked if reviewed dependencies omit a required affected cell; original PDF fonts and layout are preserved, and the saved PDF is verified. Other formats require explicit image-export consent. Each operation starts from the original upload and the website handles one input edit at a time. The legacy calculation APIs and optional connectors described below remain backend references; they are not separate UI workflows.
 
 ## Verified rules
 
@@ -49,9 +49,9 @@ export PDF_EDITOR_OLLAMA_MODEL=qwen3:8b
 bash start.sh
 ```
 
-The connector uses [Ollama structured outputs](https://docs.ollama.com/capabilities/structured-outputs) and validates the returned IDs and roles. Ollama and a real model have not been installed or evaluated by these code changes. Automated tests exercise the connector with a mocked response. The deterministic BWA workflow works without Ollama or Jev.
+The connector uses [Ollama structured outputs](https://docs.ollama.com/capabilities/structured-outputs) and validates the returned IDs and roles. Ollama and a real model have not been installed or evaluated by these code changes. Automated tests exercise the connector with a mocked response. The deterministic BWA workflow works without Ollama or AI.
 
-Jev could serve the same advisory classification role through its Choice primitive, with supplied row-role options. A Jev connector is not included in this version. Any AI-proposed formula for a new format must be reviewed and translated into explicit Python rules before automatic PDF updates are enabled.
+AI could serve the same advisory classification role through its Choice primitive, with supplied row-role options. A AI connector is not included in this version. Any AI-proposed formula for a new format must be reviewed and translated into explicit Python rules before automatic PDF updates are enabled.
 
 ## Tests
 

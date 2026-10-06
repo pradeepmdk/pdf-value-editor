@@ -8,6 +8,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pymupdf
+from jev_review import load_environment
+
+load_environment()
 
 MAX_REQUEST = 30 * 1024 * 1024
 TOKEN = re.compile(rb'\((?:\\.|[^\\)])*\)|/[^\s/\[\]()<>]+|-?\d*\.?\d+|[A-Za-z*\x27\"]+|\S')
@@ -184,6 +187,13 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
+        if self.path == '/api/finance/decision-status':
+            from jev_review import status
+            configuration=status()
+            return self.reply(200,{'enabled':configuration['enabled'],'advisory_only':True})
+        if self.path == '/api/finance/jev-status':
+            from jev_review import status
+            return self.reply(200, status())
         if self.path == '/api/finance/ai-status':
             from ai_rules import status
             return self.reply(200,status())
@@ -193,9 +203,7 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             return
         if self.path == '/finance':
-            general=Path(__file__).with_name('general.html').read_text(encoding='utf-8')
-            finance=Path(__file__).with_name('finance.html').read_text(encoding='utf-8').replace('__GENERAL_PANEL__',html.escape(general,quote=True))
-            return self.reply(200,finance.encode(),'text/html; charset=utf-8')
+            return self.reply(200,Path(__file__).with_name('finance.html').read_bytes(),'text/html; charset=utf-8')
         if self.path == '/selection.js':
             return self.reply(200, Path(__file__).with_name('selection.js').read_bytes(), 'text/javascript; charset=utf-8')
         if self.path == '/scan':
@@ -220,12 +228,29 @@ class Handler(BaseHTTPRequestHandler):
                 result=prepare(data)
                 result['pdf']=base64.b64encode(result['pdf']).decode()
                 return self.reply(200,result)
+            if self.path == '/api/finance/workflow-analyze':
+                from finance_workflow import analyze
+                return self.reply(200,analyze(data,request.get('locale','de'),int(request.get('rotation',0))))
+            if self.path in ('/api/finance/workflow-plan','/api/finance/workflow-apply'):
+                from general_finance import validate_analysis
+                from finance_workflow import plan,apply
+                extracted=validate_analysis(data,request['analysis'])
+                if self.path.endswith('-plan'):
+                    return self.reply(200,plan(data,extracted,request['edits'],request['rules']))
+                output,result=apply(data,extracted,request['edits'],request['rules'],request.get('allow_raster') is True)
+                return self.reply(200,{'pdf':base64.b64encode(output).decode(),**result})
             if self.path == '/api/general/analyze':
                 from general_finance import signed_extract
                 return self.reply(200,signed_extract(data,request.get('locale','de'),int(request.get('rotation',0))))
-            if self.path in ('/api/general/plan','/api/general/apply','/api/general/preview','/api/general/suggest'):
+            if self.path in ('/api/general/plan','/api/general/apply','/api/general/preview','/api/general/suggest','/api/general/jev-review','/api/general/jev-dependencies','/api/general/decision-review','/api/general/dependencies'):
                 from general_finance import validate_analysis,calculate,render_changes,preview_cell
                 extracted=validate_analysis(data,request['analysis'])
+                if self.path.endswith('/jev-dependencies') or self.path.endswith('/dependencies'):
+                    from jev_dependencies import decide
+                    return self.reply(200,decide(extracted,request['edits']))
+                if self.path.endswith('/jev-review') or self.path.endswith('/decision-review'):
+                    from jev_review import review
+                    return self.reply(200,review(extracted))
                 if self.path.endswith('/suggest'):
                     from ai_rules import suggest
                     return self.reply(200,suggest(extracted))

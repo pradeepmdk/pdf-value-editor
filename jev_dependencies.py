@@ -50,6 +50,35 @@ def candidates(extracted, edited_id):
 
 
 def decide(extracted, edits):
+    if not isinstance(edits, list) or not edits or len(edits) > 30:
+        raise ValueError('Select one to thirty independent input changes.')
+    if len(edits) == 1:
+        return _decide_one(extracted, edits)
+    if any(not isinstance(e, dict) for e in edits) or len({e.get('id') for e in edits}) != len(edits):
+        raise ValueError('Each independent input can be changed only once.')
+    by_id = {c['id']: c for c in extracted['cells']}
+    for e in edits:
+        c = by_id.get(e.get('id'))
+        if not c or c.get('editable') is False:
+            raise ValueError('Select independent input fields.')
+        if parse_amount(e.get('value', ''), extracted['locale'])[0] == Decimal(c['value']):
+            raise ValueError('Every pending replacement must differ from its original amount.')
+    selected = {}; decisions = []; unresolved = []
+    for e in edits:
+        result = _decide_one(extracted, [e])
+        decisions.extend(result['decisions']); unresolved.extend(result['unresolved'])
+        for r in result['suggestions']:
+            if r['target'] in selected and selected[r['target']]['terms'] != r['terms']:
+                raise ValueError('AI proposed conflicting dependencies for the input changes. No rules were applied; review manual relationships.')
+            selected[r['target']] = r
+    rules = list(selected.values())
+    result = calculate(extracted, edits, rules)
+    return {'model': MODEL, 'suggestions': rules, 'changes': result['changes'],
+            'decisions': decisions, 'unresolved': unresolved, 'advisory_only': True,
+            'note': 'AI reviewed each changed input against the original amounts; Python calculated all edits together. Multiple input edits use multiple API requests. Review the combined formulas and unresolved dependencies before accepting.'}
+
+
+def _decide_one(extracted, edits):
     if not isinstance(edits, list) or len(edits) != 1 or not isinstance(edits[0], dict):
         raise ValueError('Select one input amount and enter its replacement before asking AI.')
     cells = extracted['cells']
@@ -59,7 +88,9 @@ def decide(extracted, edits):
         raise ValueError('Select an existing input amount.')
     if by_id[edited_id].get('editable') is False:
         raise ValueError('Select an independent input amount; this amount is derived.')
-    replacement, _ = parse_amount(edits[0].get('value', ''), extracted['locale'])
+    replacement, suffix = parse_amount(edits[0].get('value', ''), extracted['locale'])
+    if suffix != by_id[edited_id].get('suffix', ''):
+        raise ValueError('Preserve the original S/H suffix; debit/credit direction belongs in reviewed accounting rules.')
     if replacement == Decimal(by_id[edited_id]['value']):
         raise ValueError('Enter a different replacement amount before asking AI.')
     if len(cells) > 150 and extracted.get('candidate_rules') is None:
@@ -86,6 +117,10 @@ def decide(extracted, edits):
                                   ', then '.join(descriptions) +
                                   '. The original printed amounts already satisfy this formula. Choose this relationship when these row labels describe its financial meaning.')
         questions[target] = {'type': 'choice', 'instructions':
+            'Review financial reporting relationships in a German accounting context. '
+            'BWA aggregates bookkeeping accounts; SuSa lists account movements and balances; '
+            'KER is a short-term profit report, often a BWA view. Never invent account allocation, '
+            'VAT treatment, counterpart bookings or reporting-period mappings. '
             f"Which financial relationship best explains the amount for '{describe(by_id[target])}' "
             f'(row label `cells.{target}.label`, column header `cells.{target}.column`)? '
             'Use each amount\'s row label, column header and table position in `cells` to choose between the described relationships. '

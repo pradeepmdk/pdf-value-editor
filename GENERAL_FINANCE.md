@@ -1,3 +1,5 @@
+**Current finance export:** exact native font/size export is required. Changed scans and unsupported font encodings are blocked. Older raster-export descriptions in this file describe the legacy general APIs. Multiple pending edits and linked-report workflows are documented in [LINKED_REPORTS.md](LINKED_REPORTS.md).
+
 # General financial PDFs
 
 The `/finance` interface is now one workflow for all uploads, with no BWA/general mode buttons or local LLM controls. Upload, click **Analyze document**, select an independent input, enter its replacement and click **Identify affected fields**. Review and accept the dependency set, then **Verify rules & preview changes** and export. Recognized statements provide source-validated candidate relationships for AI and preserve original text/fonts on export; complete dependency coverage is required. Other statements use bounded dynamic candidate discovery and require consent for changed-page image export. Manual rule controls are under **Add or revise calculation rules**. The previous two-mode interface and local Ollama UI described in older instructions are no longer presented.

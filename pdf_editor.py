@@ -187,6 +187,9 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
+        if self.path == '/api/finance/linked-demo':
+            from linked_finance import demo
+            return self.reply(200, demo())
         if self.path == '/api/finance/decision-status':
             from jev_review import status
             configuration=status()
@@ -203,7 +206,14 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             return
         if self.path == '/finance':
-            return self.reply(200,Path(__file__).with_name('finance.html').read_bytes(),'text/html; charset=utf-8')
+            page = Path(__file__).with_name('finance.html').read_text(encoding='utf-8')
+            panel = Path(__file__).with_name('linked-finance.html').read_text(encoding='utf-8')
+            page = page.replace('</main>', panel + '</main>')
+            return self.reply(200, page.encode(), 'text/html; charset=utf-8')
+        if self.path in ('/linked-finance.js', '/finance-edits.js'):
+            name = self.path.lstrip('/')
+            kind = 'text/javascript; charset=utf-8' if name.endswith('.js') else 'text/html; charset=utf-8'
+            return self.reply(200, Path(__file__).with_name(name).read_bytes(), kind)
         if self.path == '/selection.js':
             return self.reply(200, Path(__file__).with_name('selection.js').read_bytes(), 'text/javascript; charset=utf-8')
         if self.path == '/scan':
@@ -221,6 +231,14 @@ class Handler(BaseHTTPRequestHandler):
             if not 0 < length <= MAX_REQUEST:
                 return self.reply(413, {'error': 'Upload a PDF smaller than 20 MB.'})
             request = json.loads(self.rfile.read(length))
+            if self.path in ('/api/finance/linked-analyze', '/api/finance/linked-plan', '/api/finance/linked-apply'):
+                from linked_finance import analyze, plan, apply
+                if self.path.endswith('-analyze'):
+                    return self.reply(200, analyze(request['documents'], request.get('locale', 'de'), int(request.get('rotation', 0))))
+                args = (request['documents'], request['analysis'], request['edits'], request['rules'], request.get('reviewed') is True)
+                if self.path.endswith('-plan'):
+                    return self.reply(200, plan(*args))
+                return self.reply(200, apply(*args, coverage=request.get('coverage') is True))
             data = base64.b64decode(request['pdf'], validate=True)
             page_number = int(request.get('page', 1))
             if self.path == '/api/finance/prepare':

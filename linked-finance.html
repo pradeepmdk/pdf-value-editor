@@ -1,0 +1,21 @@
+<details id="linkedPanel" style="margin:24px 0"><summary style="font-size:24px;font-weight:700">Linked reports: BWA, SuSa and KER</summary>
+<section><h2>Synchronize a reviewed scenario / Geprueftes Szenario synchronisieren</h2>
+<p>Upload reports for the same company and accounting period. Map the account allocation and report formulas below. Once reviewed, one input change propagates through those relationships. This creates scenario copies; it does not change accounting software or source bookings.</p>
+<p class="hint">BWA = Betriebswirtschaftliche Auswertung (business performance report). SuSa = Summen- und Saldenliste (account totals and balances). KER = Kurzfristige Erfolgsrechnung (short-term profit report, often a BWA view). These are related reports from the books, not three interchangeable totals. VAT, receivables, credit/debit direction and account allocation require an explicit accounting rule.</p>
+<label for="lfFiles">Related PDFs (two to six; combined maximum 20 MB)</label><input id="lfFiles" type="file" multiple accept="application/pdf">
+<button id="lfDemo">Try a fictitious three-report demo</button><p class="hint">Demo: change turnover from 200,000 to 1,000,000 and costs to 80,000 together. This is a simplified zero-VAT scenario, not client data.</p>
+<div id="lfMetadata"></div><label for="lfLocale">Number format</label><select id="lfLocale"><option value="de">German: 1.234,56</option><option value="en">International: 1,234.56</option></select>
+<label for="lfRotation">Scan rotation for analysis</label><select id="lfRotation"><option value="0">0 degrees</option><option value="90">90 degrees clockwise</option><option value="180">180 degrees</option><option value="270">270 degrees clockwise</option></select>
+<button id="lfAnalyze" disabled>Analyze linked reports</button><p id="lfSummary" class="hint"></p>
+<div class="layout"><div><h3>Account allocation and report links</h3><p class="hint">Choose a calculated target and add its source fields. Use + or − explicitly; S/H suffixes are never interpreted as accounting direction automatically. Identical amounts do not create links automatically.</p>
+<label for="lfTarget">Calculated target field</label><select id="lfTarget" disabled></select><label for="lfSource">Source field (can be in another report)</label><select id="lfSource" disabled></select><label for="lfSign">Operation</label><select id="lfSign"><option value="1">Add (+)</option><option value="-1">Subtract (-)</option></select>
+<button id="lfTerm" disabled>Add source to formula</button><p id="lfTerms">No sources selected.</p><button id="lfSave" disabled>Save relationship</button><button id="lfClear" disabled>Clear custom relationships</button>
+<h3>Change an independent amount</h3><label for="lfInput">Input field</label><select id="lfInput" disabled></select><label for="lfValue">New amount (preserve any S/H suffix)</label><input id="lfValue" disabled>
+<button id="lfAddEdit" disabled>Add / update pending change</button><div id="lfEdits"></div>
+<label><input id="lfReviewed" type="checkbox" style="width:auto"> I reviewed the company, period, account allocation and the formulas.</label>
+<button id="lfPlan" disabled>Recalculate all linked reports</button>
+<label><input id="lfCoverage" type="checkbox" style="width:auto"> I reviewed all changed amounts and confirmed the dependency coverage.</label>
+<p class="hint">Strict appearance: native font and font size must remain unchanged. Scanned values and unsupported encodings block export. No approximate font or smaller text will be substituted.</p>
+<button id="lfApply" disabled>Create synchronized PDF copies</button><p id="lfStatus" role="status" aria-live="polite">Upload related reports to begin.</p><div id="lfDownloads"></div></div>
+<div><h3>Extracted fields</h3><div id="lfCells" class="scroll"></div><h3>Reviewed relationships</h3><div id="lfRules" class="scroll"></div><h3>Affected amounts across reports</h3><div id="lfChanges" class="scroll"></div><h3>Document preview</h3><select id="lfPreviewChoice" disabled></select><iframe id="lfPreview" title="Linked report original or recalculated preview"></iframe></div></div></section></details>
+<script src="/linked-finance.js"></script>

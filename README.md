@@ -121,3 +121,7 @@ Path('edited.pdf').write_bytes(result)
 Use `occurrence=1` to edit the first occurrence only; the default `0` edits all matches. `/api/preview` and `/api/edit` accept JSON with a base64 `pdf` field. The website is in `editor.html`; backend and reusable editing function are in `pdf_editor.py`.
 
 Identify affected fields calls the configured AI for dependency review. Amounts come from the uploaded document. Recognized BWA layouts offer source-validated predefined formulas; other layouts use bounded candidate discovery. Run the backend with outbound HTTPS access to openrouter.ai; restricted sandbox launches can block sockets (Windows error 10013). Normal start.bat/start.sh launches do not use the agent sandbox. No rules or PDF edits are applied by a failed AI request.
+
+## Linked reports and multiple edits
+
+See [LINKED_REPORTS.md](LINKED_REPORTS.md). The same `/finance` URL now supports a pending list of simultaneous input changes and reviewed cross-document rules with ZIP/individual exports. Finance export requires exact native fonts/sizes; changed scans and unsupported encodings are blocked instead of rasterized. Older image-export descriptions below apply to the legacy general APIs, not the current finance export.

@@ -54,7 +54,10 @@ def plan(data, extracted, edits, rules):
 def apply(data, extracted, edits, rules, allow_raster=False):
     result = plan(data, extracted, edits, rules)
     if extracted.get('export_mode') != 'direct':
-        return render_changes(data, extracted, edits, rules, allow_raster)
+        from exact_finance import apply_exact
+        output = apply_exact(data, result['changes'], extracted['locale'])
+        result['note'] = 'Original native fonts and sizes preserved and saved amounts verified. Only reviewed formulas were applied; source ledgers were not changed.'
+        return output, result
     from finance import apply as direct_apply
     by_id = {c['id']: c for c in extracted['cells']}
     mapped = [{'row': by_id[e['id']]['row'], 'column': by_id[e['id']]['column'], 'value': e['value']} for e in edits]

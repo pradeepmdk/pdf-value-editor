@@ -44,6 +44,12 @@ class DependencyTests(unittest.TestCase):
                 self.assertEqual(total, Decimal(by_id[target]['value']))
                 self.assertNotIn(target, [t['source'] for t in rule['terms']])
 
+    def test_multiple_inputs_are_calculated_together(self):
+        with patch.dict(os.environ, {'OPEN_ROUTER_KEY':'test'}), patch('urllib.request.urlopen', side_effect=self.response) as network:
+            result = decide(self.statement(), [{'id':'c1','value':'120.00'}, {'id':'c2','value':'40.00'}])
+        self.assertEqual(network.call_count, 2)
+        self.assertEqual({c['id']:c['new'] for c in result['changes']}, {'c1':'120.00','c2':'40.00','c3':'80.00','c5':'70.00'})
+
     def test_bad_edit_before_network(self):
         with patch('urllib.request.urlopen') as call:
             for edits in ([], [{'id': 'bad', 'value': '120.00'}], [{'id': 'c1', 'value': '100.00'}]):

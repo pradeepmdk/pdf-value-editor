@@ -8,7 +8,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pymupdf
-from jev_review import load_environment
+from openrouter_dependencies import load_environment
 
 load_environment()
 
@@ -191,12 +191,9 @@ class Handler(BaseHTTPRequestHandler):
             from linked_finance import demo
             return self.reply(200, demo())
         if self.path == '/api/finance/decision-status':
-            from jev_review import status
+            from openrouter_dependencies import status
             configuration=status()
-            return self.reply(200,{'enabled':configuration['enabled'],'advisory_only':True})
-        if self.path == '/api/finance/jev-status':
-            from jev_review import status
-            return self.reply(200, status())
+            return self.reply(200,{'enabled':configuration['enabled'],'model':configuration['model'],'advisory_only':True})
         if self.path == '/api/finance/ai-status':
             from ai_rules import status
             return self.reply(200,status())
@@ -209,8 +206,13 @@ class Handler(BaseHTTPRequestHandler):
             page = Path(__file__).with_name('finance.html').read_text(encoding='utf-8')
             panel = Path(__file__).with_name('linked-finance.html').read_text(encoding='utf-8')
             page = page.replace('</main>', panel + '</main>')
+            # Serve one current document so stale or blocked companion scripts
+            # cannot leave the obsolete analysis-only handler active.
+            for name in ('linked-finance.js', 'amount-format.js', 'finance-edits.js', 'finance-preview.js'):
+                script = Path(__file__).with_name(name).read_text(encoding='utf-8')
+                page = page.replace('<script src="/' + name + '"></script>', '<script>\n' + script + '\n</script>')
             return self.reply(200, page.encode(), 'text/html; charset=utf-8')
-        if self.path in ('/linked-finance.js', '/finance-edits.js'):
+        if self.path in ('/linked-finance.js', '/finance-edits.js', '/finance-preview.js', '/amount-format.js'):
             name = self.path.lstrip('/')
             kind = 'text/javascript; charset=utf-8' if name.endswith('.js') else 'text/html; charset=utf-8'
             return self.reply(200, Path(__file__).with_name(name).read_bytes(), kind)
@@ -248,27 +250,45 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(200,result)
             if self.path == '/api/finance/workflow-analyze':
                 from finance_workflow import analyze
-                return self.reply(200,analyze(data,request.get('locale','de'),int(request.get('rotation',0))))
+                from openrouter_dependencies import inspect_document
+                from scan_editor import _signature
+                result = analyze(data,request.get('locale','de'),int(request.get('rotation',0)))
+                statement = result['analysis']['statement']
+                inspection = inspect_document(statement)
+                statement['report_type'] = inspection['report_type']
+                independent = set(inspection['independent_ids'])
+                for cell in statement['cells']:
+                    cell['editable'] = cell.get('editable') is not False and cell['id'] in independent
+                statement['notes'].insert(0, inspection['report_type'] + ': ' + inspection['summary'])
+                statement['notes'].extend('AI uncertainty: ' + item for item in inspection['uncertainties'])
+                result['signature'] = _signature(result['analysis'])
+                result['inspection'] = inspection
+                return self.reply(200,result)
             if self.path in ('/api/finance/workflow-plan','/api/finance/workflow-apply'):
                 from general_finance import validate_analysis
                 from finance_workflow import plan,apply
                 extracted=validate_analysis(data,request['analysis'])
+                if request.get('proportional_simulation') is True:
+                    from proportional_finance import scenario
+                    if self.path.endswith('-plan'):
+                        return self.reply(200,scenario(data,extracted,request['edits']))
+                    output,result=scenario(data,extracted,request['edits'],export=True)
+                    from change_preview import previews
+                    return self.reply(200,{'pdf':base64.b64encode(output).decode(), 'highlighted':previews(data,output,result['changes']), **result})
                 if self.path.endswith('-plan'):
                     return self.reply(200,plan(data,extracted,request['edits'],request['rules']))
                 output,result=apply(data,extracted,request['edits'],request['rules'],request.get('allow_raster') is True)
-                return self.reply(200,{'pdf':base64.b64encode(output).decode(),**result})
+                from change_preview import previews
+                return self.reply(200,{'pdf':base64.b64encode(output).decode(), 'highlighted':previews(data,output,result['changes']), **result})
             if self.path == '/api/general/analyze':
                 from general_finance import signed_extract
                 return self.reply(200,signed_extract(data,request.get('locale','de'),int(request.get('rotation',0))))
-            if self.path in ('/api/general/plan','/api/general/apply','/api/general/preview','/api/general/suggest','/api/general/jev-review','/api/general/jev-dependencies','/api/general/decision-review','/api/general/dependencies'):
+            if self.path in ('/api/general/plan','/api/general/apply','/api/general/preview','/api/general/suggest','/api/general/dependencies'):
                 from general_finance import validate_analysis,calculate,render_changes,preview_cell
                 extracted=validate_analysis(data,request['analysis'])
-                if self.path.endswith('/jev-dependencies') or self.path.endswith('/dependencies'):
-                    from jev_dependencies import decide
+                if self.path.endswith('/dependencies'):
+                    from openrouter_dependencies import decide
                     return self.reply(200,decide(extracted,request['edits']))
-                if self.path.endswith('/jev-review') or self.path.endswith('/decision-review'):
-                    from jev_review import review
-                    return self.reply(200,review(extracted))
                 if self.path.endswith('/suggest'):
                     from ai_rules import suggest
                     return self.reply(200,suggest(extracted))

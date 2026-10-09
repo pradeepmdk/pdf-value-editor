@@ -1,0 +1,9 @@
+.env
+.env.*
+.tools/
+output/
+__pycache__/
+test_*.py
+test_*.js
+start.bat
+start.sh

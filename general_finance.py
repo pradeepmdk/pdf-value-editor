@@ -122,10 +122,15 @@ def calculate(extracted,edits,rules):
     for edit in edits:
         key=edit['id']
         if key not in cells or key in by_target:raise ValueError('Edit a source amount, not a calculated target.')
-        values[key]=parse_amount(edit['value'],extracted['locale'])[0]
+        value,suffix=parse_amount(edit['value'],extracted['locale'])
+        if suffix!=cells[key]['suffix']:raise ValueError('Preserve the original S/H direction; changing debit/credit direction needs separate accounting rules.')
+        if suffix and value<0:raise ValueError('S/H amounts must be non-negative magnitudes. Do not combine a minus sign with a debit/credit suffix.')
+        values[key]=value
     for target in order:values[target]=sum((values[t['source']]*t['sign'] for t in by_target[target]['terms']),Decimal(0))
     changes=[]
     for key,cell in cells.items():
+        if cell['suffix'] and values[key]<0:
+            raise ValueError(f'Calculated balance {key} crosses its original S/H direction. Automatic direction reversal is unsupported; no PDF was created. Review the underlying debit/credit movements.')
         if values[key]!=Decimal(cell['value']):changes.append({**cell,'new':format_amount(values[key],extracted['locale'],cell['suffix']),'reason':'Reviewed formula' if key in by_target else 'Input edit'})
     if not changes:raise ValueError('No amounts changed.')
     return {'changes':changes,'rules_checked':len(rules),'note':'Only supplied, baseline-verified relationships were recalculated. Undeclared dependencies remain unchanged.'}

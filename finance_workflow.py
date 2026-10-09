@@ -22,13 +22,13 @@ def analyze(data, locale='de', rotation=0):
                 cells.append({'id': identifier, 'page': 1, 'text': cell['text'],
                     'value': str(amount(cell['text'])), 'suffix': '', 'context': row['label'] + ' / ' + source['columns'][column],
                     'label': row['label'], 'column': source['columns'][column],
-                    'box': cell['rect'], 'mode': 'text', 'rotation': 0, 'row': row['id'], 'column': column,
+                    'box': cell['rect'], 'mode': 'text', 'rotation': 0, 'row': row['id'], 'column_index': column,
                     'editable': row['editable'] and column < 12})
                 if column < 12 and row['id'] in RULES:
                     candidate_rules.append({'target': identifier, 'terms': [{'source': f'{key}_{column}', 'sign': sign} for key, sign in RULES[row['id']]]})
                 elif column == 12:
                     candidate_rules.append({'target': identifier, 'terms': [{'source': f"{row['id']}_{i}", 'sign': 1} for i in range(12)]})
-        statement = {'pages': 1, 'cells': cells, 'locale': 'de', 'notes': ['Original printed relationships passed validation. AI selects affected dependencies for review.'],
+        statement = {'pages': 1, 'cells': cells, 'locale': 'de', 'notes': ['Original printed relationships passed validation. AI selects affected dependencies for review.', 'Revenue edits recalculate revenue totals and profit. Payroll and other independent costs remain unchanged unless you edit them too; revenue does not determine payroll.'],
                      'export_mode': 'direct', 'candidate_rules': candidate_rules, 'automatic_rules': False}
         result = {'analysis': {'kind': 'general_finance', 'digest': hashlib.sha256(data).hexdigest(), 'statement': statement}}
     from scan_editor import _signature
@@ -37,11 +37,13 @@ def analyze(data, locale='de', rotation=0):
 
 
 def plan(data, extracted, edits, rules):
+    if extracted.get('export_mode') == 'direct' and not rules:
+        raise ValueError('No reviewed dependencies were supplied. Click Identify affected fields, review the suggestions, then Accept reviewed dependencies before verifying changes.')
     result = calculate(extracted, edits, rules)
     if extracted.get('export_mode') == 'direct':
         from finance import plan as source_plan
         by_id = {c['id']: c for c in extracted['cells']}
-        mapped = [{'row': by_id[e['id']]['row'], 'column': by_id[e['id']]['column'], 'value': e['value']} for e in edits]
+        mapped = [{'row': by_id[e['id']]['row'], 'column': by_id[e['id']]['column_index'], 'value': e['value']} for e in edits]
         expected = source_plan(data, mapped)['changes']
         expected_values = {f"{c['row_id']}_{c['column_index']}": c['new'] for c in expected}
         actual = {c['id']: c['new'] for c in result['changes']}
@@ -60,7 +62,7 @@ def apply(data, extracted, edits, rules, allow_raster=False):
         return output, result
     from finance import apply as direct_apply
     by_id = {c['id']: c for c in extracted['cells']}
-    mapped = [{'row': by_id[e['id']]['row'], 'column': by_id[e['id']]['column'], 'value': e['value']} for e in edits]
+    mapped = [{'row': by_id[e['id']]['row'], 'column': by_id[e['id']]['column_index'], 'value': e['value']} for e in edits]
     output, _ = direct_apply(data, mapped)
     result['note'] = 'The edited copy preserved original text and fonts and passed saved-statement formula verification.'
     return output, result

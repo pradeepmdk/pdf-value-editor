@@ -23,6 +23,15 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(len(source['cells']), 416)
         self.assertEqual(source['export_mode'], 'direct')
         self.assertFalse(source['automatic_rules'])
+        revenue = next(c for c in source['cells'] if c['id']=='revenue_0')
+        self.assertEqual(revenue['column'], 'Jan/2025')
+        self.assertEqual(revenue['column_index'], 0)
+        annual = next(c for c in source['cells'] if c['id']=='revenue_12')
+        self.assertEqual(annual['column'], 'Annual total')
+
+    def test_no_reviewed_rules_explains_required_step(self):
+        with self.assertRaisesRegex(ValueError, 'Accept reviewed dependencies'):
+            plan(self.data, self.source(), [{'id':'revenue_0','value':'62.315,78'}], [])
 
     def test_browser_number_round_trip_keeps_signature_valid(self):
         signed = analyze(self.data)

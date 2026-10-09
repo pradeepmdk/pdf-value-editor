@@ -5,6 +5,7 @@ import hmac
 import io
 import json
 import math
+import os
 import re
 import secrets
 import threading
@@ -14,7 +15,7 @@ import numpy as np
 import pymupdf
 from PIL import Image, ImageDraw, ImageFont
 
-_secret = secrets.token_bytes(32)
+_secret = os.environ["SIGNING_SECRET"].encode() if os.environ.get("SIGNING_SECRET") else secrets.token_bytes(32)
 _lock = threading.Lock()
 _engine = None
 

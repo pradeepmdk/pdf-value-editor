@@ -119,7 +119,7 @@ def plan(items, signed, edits, rules, reviewed=False):
         if s.get('export_mode') == 'direct' and report['id'] in changed_documents:
             from finance import plan as bwa_plan
             changes = [c for c in result['changes'] if c['document'] == report['id']]
-            mapped = [{'row': c['row'], 'column': c['column'], 'value': c['new']} for c in changes if c.get('editable')]
+            mapped = [{'row': c['row'], 'column': c['column_index'], 'value': c['new']} for c in changes if c.get('editable')]
             expected = bwa_plan(document['data'], mapped)['changes']
             if {f"{c['row_id']}_{c['column_index']}": c['new'] for c in expected} != {c['local_id']: c['new'] for c in changes}:
                 raise ValueError('Linked BWA changes do not cover all verified monthly and annual relationships.')

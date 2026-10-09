@@ -1,0 +1,17 @@
+# Used by the Vercel build only; local launchers still use requirements.txt.
+[project]
+name = "pdf-value-editor"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "PyMuPDF==1.28.2",
+    "numpy>=2.0,<3",
+    "Pillow>=12.0,<13",
+    "rapidocr-onnxruntime==1.4.4",
+    # Vercel has no X11/GL libraries, so the GUI build of OpenCV cannot load.
+    "opencv-python-headless",
+]
+
+[tool.uv]
+# Drop rapidocr's dependency on the GUI build; opencv-python-headless provides cv2.
+override-dependencies = ["opencv-python ; sys_platform == 'never'"]

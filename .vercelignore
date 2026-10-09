@@ -7,3 +7,4 @@ test_*.py
 test_*.js
 start.bat
 start.sh
+requirements.txt

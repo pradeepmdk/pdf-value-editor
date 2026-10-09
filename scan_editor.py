@@ -8,6 +8,7 @@ import math
 import os
 import re
 import secrets
+import sys
 import threading
 from pathlib import Path
 
@@ -73,7 +74,8 @@ def locate_scan(data, old, page_number=1, rotation=0):
         if _engine is None:
             try:
                 from rapidocr_onnxruntime import RapidOCR
-            except ImportError:
+            except ImportError as exc:
+                print('OCR import failed:', exc, file=sys.stderr, flush=True)
                 raise ValueError('Install the OCR dependencies from requirements.txt first.')
             _engine = RapidOCR(intra_op_num_threads=2, inter_op_num_threads=2)
         results, _ = _engine(np.array(image))
@@ -150,7 +152,8 @@ def locate_region(data, page_number, rotation, region):
         if _engine is None:
             try:
                 from rapidocr_onnxruntime import RapidOCR
-            except ImportError:
+            except ImportError as exc:
+                print('OCR import failed:', exc, file=sys.stderr, flush=True)
                 raise ValueError('Install OCR dependencies from requirements.txt first.')
             _engine = RapidOCR(intra_op_num_threads=2, inter_op_num_threads=2)
         results, _ = _engine(np.array(crop))

@@ -124,40 +124,50 @@ def decide(extracted, edits):
                'provider': {'require_parameters': True}}
     payload['messages'][0]['content'] += '''
 For SuSa: do not add Monatsumsatz and Jahresumsatz together; year-to-date normally already includes the month. Closing Saldo uses signed opening balance plus year-to-date debit minus year-to-date credit (unless explicitly a monthly closing report). In signed accounting balance, S is debit (+), H credit (-). Formula terms in this API must express the magnitude in the TARGET's printed S/H direction: a Haben target requires the opposite signs from a Soll target. Determine signs from the actual header and S/H markers, not account names alone. Check each original balance before proposing its rule. A changed movement may require a counterpart booking: flag that as unresolved when the supplied report does not identify the counterpart or allocation. Do not fabricate a bank/debtor adjustment just to force balance. Unsupported VAT, tax or inter-report allocations must remain unresolved. Payroll changes only if an actual payroll input/account is changed; it does not follow turnover automatically.'''
-    body = json.dumps(payload).encode()
-    if len(body) > 350000:
-        raise ValueError('Report exceeds the AI context budget. No amounts were truncated or sent.')
-    request = urllib.request.Request(ENDPOINT, data=body, headers={'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json'})
-    try:
-        with urllib.request.urlopen(request, timeout=180) as response:
-            raw = response.read(2 * 1024 * 1024 + 1)
-        if len(raw) > 2 * 1024 * 1024:
-            raise ValueError('Oversized response')
-        answer = json.loads(raw)['choices'][0]
-        if answer.get('finish_reason') != 'stop':
-            raise ValueError('Incomplete answer')
-        generated = json.loads(answer['message']['content'])
-        rules = generated['rules']; unresolved = generated['unresolved']; summary = generated['summary']
-        if not isinstance(rules, list) or not isinstance(unresolved, list) or not isinstance(summary, str):
-            raise ValueError('Invalid answer')
-        if any(not isinstance(k, str) or k not in cells for k in unresolved):
-            raise ValueError('Unknown unresolved field')
-        for r in rules:
-            if not isinstance(r, dict) or not isinstance(r.get('reason'), str) or not isinstance(r.get('terms'), list):
-                raise ValueError('Invalid formula')
-            if any(not isinstance(t, dict) or type(t.get('sign')) is not int for t in r['terms']):
-                raise ValueError('Invalid signs')
-            if offered is not None and (r.get('target') not in offered or r['terms'] != offered[r['target']]['terms']):
-                raise ValueError('Formula disagrees with source-validated report')
-        result = calculate(extracted, edits, rules)
-        if offered is not None and {r['target'] for r in rules} != set(offered):
-            raise ValueError('Incomplete verified BWA dependency coverage')
-    except urllib.error.HTTPError as exc:
-        raise ValueError(f'OpenRouter rejected GPT analysis (HTTP {exc.code}). Check credits, key and model access. No PDF was changed.') from None
-    except (urllib.error.URLError, TimeoutError):
-        raise ValueError('GPT analysis could not reach OpenRouter or timed out. No PDF was changed.') from None
-    except (ValueError, KeyError, TypeError) as exc:
-        raise ValueError('GPT proposals failed validation: ' + str(exc) + '. No PDF was changed.') from None
+    # A rejected answer is sent back once with the exact validation error so GPT can correct it.
+    # Python still verifies every returned formula; nothing invalid is accepted on retry.
+    for attempt in range(2):
+        body = json.dumps(payload).encode()
+        if len(body) > 350000:
+            raise ValueError('Report exceeds the AI context budget. No amounts were truncated or sent.')
+        request = urllib.request.Request(ENDPOINT, data=body, headers={'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json'})
+        content = None
+        try:
+            with urllib.request.urlopen(request, timeout=180) as response:
+                raw = response.read(2 * 1024 * 1024 + 1)
+            if len(raw) > 2 * 1024 * 1024:
+                raise ValueError('Oversized response')
+            answer = json.loads(raw)['choices'][0]
+            if answer.get('finish_reason') != 'stop':
+                raise ValueError('Incomplete answer')
+            content = answer['message']['content']
+            generated = json.loads(content)
+            rules = generated['rules']; unresolved = generated['unresolved']; summary = generated['summary']
+            if not isinstance(rules, list) or not isinstance(unresolved, list) or not isinstance(summary, str):
+                raise ValueError('Invalid answer')
+            if any(not isinstance(k, str) or k not in cells for k in unresolved):
+                raise ValueError('Unknown unresolved field')
+            for r in rules:
+                if not isinstance(r, dict) or not isinstance(r.get('reason'), str) or not isinstance(r.get('terms'), list):
+                    raise ValueError('Invalid formula')
+                if any(not isinstance(t, dict) or type(t.get('sign')) is not int for t in r['terms']):
+                    raise ValueError('Invalid signs')
+                if offered is not None and (r.get('target') not in offered or r['terms'] != offered[r['target']]['terms']):
+                    raise ValueError('Formula disagrees with source-validated report')
+            result = calculate(extracted, edits, rules)
+            if offered is not None and {r['target'] for r in rules} != set(offered):
+                raise ValueError('Incomplete verified BWA dependency coverage')
+            break
+        except urllib.error.HTTPError as exc:
+            raise ValueError(f'OpenRouter rejected GPT analysis (HTTP {exc.code}). Check credits, key and model access. No PDF was changed.') from None
+        except (urllib.error.URLError, TimeoutError):
+            raise ValueError('GPT analysis could not reach OpenRouter or timed out. No PDF was changed.') from None
+        except (ValueError, KeyError, TypeError) as exc:
+            if attempt == 1 or not isinstance(content, str):
+                raise ValueError('GPT proposals failed validation: ' + str(exc) + '. No PDF was changed.') from None
+            payload['messages'] = payload['messages'][:2] + [
+                {'role': 'assistant', 'content': content},
+                {'role': 'user', 'content': 'Your answer was rejected by validation: ' + str(exc) + ' Return the complete corrected answer. Each rule needs one unique target that is never its own source, and each source may appear only once per rule. If a relationship cannot be expressed that way, list its target as unresolved instead of guessing.'}]
     return {'model': MODEL, 'suggestions': rules, 'changes': result['changes'], 'decisions': [],
             'unresolved': [{'id': k, 'reason': 'GPT could not establish a supported formula'} for k in unresolved],
             'advisory_only': True, 'note': summary[:3000] + ' Amounts were calculated by Python Decimal; inspect the affected values before export.'}

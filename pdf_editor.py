@@ -232,7 +232,19 @@ class Handler(BaseHTTPRequestHandler):
             length = int(self.headers.get('Content-Length', '0'))
             if not 0 < length <= MAX_REQUEST:
                 return self.reply(413, {'error': 'Upload a PDF smaller than 20 MB.'})
+            if self.path == '/api/finance/prepare' and self.headers.get('Content-Type','').split(';')[0] == 'application/octet-stream':
+                from upload import prepare
+                from upload_cache import store
+                if length > 20 * 1024 * 1024:
+                    return self.reply(413, {'error':'Upload a PDF smaller than 20 MB.'})
+                result=prepare(self.rfile.read(length))
+                result['upload_token']=store(result['pdf'])
+                result['pdf']=base64.b64encode(result['pdf']).decode()
+                return self.reply(200,result)
             request = json.loads(self.rfile.read(length))
+            if self.path == '/api/finance/analysis-job':
+                from analysis_jobs import poll
+                return self.reply(200,poll(request.get('job')))
             if self.path in ('/api/finance/linked-analyze', '/api/finance/linked-plan', '/api/finance/linked-apply'):
                 from linked_finance import analyze, plan, apply
                 if self.path.endswith('-analyze'):
@@ -241,8 +253,16 @@ class Handler(BaseHTTPRequestHandler):
                 if self.path.endswith('-plan'):
                     return self.reply(200, plan(*args))
                 return self.reply(200, apply(*args, coverage=request.get('coverage') is True))
-            data = base64.b64decode(request['pdf'], validate=True)
+            if request.get('upload_token'):
+                from upload_cache import resolve
+                data=resolve(request['upload_token'])
+            else:
+                data = base64.b64decode(request['pdf'], validate=True)
             page_number = int(request.get('page', 1))
+            if self.path == '/api/finance/workflow-analyze-start':
+                from analysis_jobs import start,analyze_document
+                locale=request.get('locale','de');rotation=int(request.get('rotation',0))
+                return self.reply(200,start(lambda:analyze_document(data,locale,rotation)))
             if self.path == '/api/finance/prepare':
                 from upload import prepare
                 result=prepare(data)

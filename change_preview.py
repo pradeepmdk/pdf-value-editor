@@ -11,7 +11,7 @@ def _marked(data, changes, modified):
             page = doc[change['page']-1]
             old = pymupdf.Rect(change['box'])
             rect = old
-            if modified:
+            if modified and change.get('mode') != 'ocr':
                 # Replacement can be longer: locate its actual saved bounds rather
                 # than reusing the original width or highlighting an equal value elsewhere.
                 candidates = [pymupdf.Rect(w[:4]) * page.rotation_matrix for w in page.get_text('words') if w[4] == change['new']]

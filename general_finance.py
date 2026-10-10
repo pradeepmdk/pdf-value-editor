@@ -101,10 +101,16 @@ def calculate(extracted,edits,rules):
     by_target={}
     for rule in rules:
         target=rule['target'];terms=rule['terms']
-        if target not in cells or target in by_target or not terms:raise ValueError('Rules need a unique existing target and at least one source.')
+        if target not in cells:raise ValueError(f'Rule target {target} is not an extracted field.')
+        if target in by_target:raise ValueError(f'More than one rule was given for {target}.')
+        if not terms:raise ValueError(f'Rule for {target} has no sources.')
         seen=set()
         for term in terms:
-            if term['source'] not in cells or term['source']==target or term['source'] in seen or term['sign'] not in (-1,1):raise ValueError('Invalid, duplicate, or self-referencing source.')
+            source=term['source']
+            if source not in cells:raise ValueError(f'Rule for {target} uses unknown source {source}.')
+            if source==target:raise ValueError(f'Rule for {target} references itself as a source.')
+            if source in seen:raise ValueError(f'Rule for {target} lists source {source} more than once.')
+            if term['sign'] not in (-1,1):raise ValueError(f'Rule for {target} uses an invalid sign for {source}.')
             seen.add(term['source'])
         by_target[target]=rule
     order=[];visiting=set();visited=set()

@@ -56,6 +56,12 @@ def plan(data, extracted, edits, rules):
 def apply(data, extracted, edits, rules, allow_raster=False):
     result = plan(data, extracted, edits, rules)
     if extracted.get('export_mode') != 'direct':
+        if any(c['mode'] == 'ocr' for c in result['changes']):
+            if not allow_raster:
+                raise ValueError('This PDF is a scan. Enable image-based scan export to continue; replacement fonts are approximate. Review the preview before downloading.')
+            output, result = render_changes(data, extracted, edits, rules, allow_raster=True)
+            result['note'] = 'Scanned copy: changed pages use image-based export with approximate replacement fonts. Untouched pages were preserved. Review every changed amount before downloading.'
+            return output, result
         from exact_finance import apply_exact
         output = apply_exact(data, result['changes'], extracted['locale'])
         result['note'] = 'Original native fonts and sizes preserved and saved amounts verified. Only reviewed formulas were applied; source ledgers were not changed.'

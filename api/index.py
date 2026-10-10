@@ -13,7 +13,8 @@ FINANCE_GET = {
     '/amount-format.js', '/finance-edits.js', '/finance-preview.js', '/linked-finance.js',
 }
 FINANCE_POST = {
-    '/api/finance/prepare', '/api/finance/workflow-analyze', '/api/finance/workflow-plan',
+    '/api/finance/prepare', '/api/finance/workflow-analyze', '/api/finance/workflow-analyze-start',
+    '/api/finance/analysis-job', '/api/finance/workflow-plan',
     '/api/finance/workflow-apply', '/api/finance/linked-analyze', '/api/finance/linked-plan',
     '/api/finance/linked-apply', '/api/general/dependencies', '/api/general/preview',
 }

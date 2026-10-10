@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from finance_workflow import analyze, plan
-from general_finance import validate_analysis
+from general_finance import calculate, validate_analysis
 from openrouter_dependencies import decide
 
 
@@ -46,6 +46,28 @@ class GPTDependenciesTests(unittest.TestCase):
         with patch.dict(os.environ, {'OPEN_ROUTER_KEY': 'test'}), patch('urllib.request.urlopen', side_effect=incomplete):
             with self.assertRaisesRegex(ValueError, 'Incomplete verified BWA'):
                 decide(self.source, self.edits())
+
+    def test_rejected_answer_is_retried_once_with_validation_error(self):
+        calls = []
+        def first_incomplete(request, **kwargs):
+            calls.append(json.loads(request.data))
+            answer = json.loads(self.response(request).read())
+            if len(calls) == 1:
+                value = json.loads(answer['choices'][0]['message']['content'])
+                value['rules'] = value['rules'][:-1]
+                answer['choices'][0]['message']['content'] = json.dumps(value)
+            return io.BytesIO(json.dumps(answer).encode())
+        with patch.dict(os.environ, {'OPEN_ROUTER_KEY': 'test'}), patch('urllib.request.urlopen', side_effect=first_incomplete):
+            result = decide(self.source, self.edits())
+        self.assertEqual(len(calls), 2)
+        self.assertIn('Incomplete verified BWA', calls[1]['messages'][-1]['content'])
+        self.assertEqual(calls[1]['messages'][-2]['role'], 'assistant')
+        self.assertTrue(result['changes'])
+
+    def test_self_referencing_rule_names_the_field(self):
+        target = self.source['cells'][0]['id']
+        with self.assertRaisesRegex(ValueError, f'Rule for {target} references itself'):
+            calculate(self.source, [], [{'target': target, 'terms': [{'source': target, 'sign': 1}]}])
 
     def test_derived_input_is_rejected_without_api_call(self):
         with patch('urllib.request.urlopen') as call:

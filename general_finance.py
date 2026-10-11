@@ -58,7 +58,7 @@ def _label_and_column(items,box,locale):
 
 def extract(data,locale='de',rotation=0):
     if locale not in ('de','en') or rotation not in (0,90,180,270):raise ValueError('Invalid number format or scan rotation.')
-    cells=[];notes=[]
+    cells=[];notes=[];ocr_pages={}
     with pymupdf.open(stream=data,filetype='pdf') as doc:
         if doc.is_encrypted:raise ValueError('Unlock password-protected PDFs before uploading.')
         for page in doc:
@@ -77,23 +77,50 @@ def extract(data,locale='de',rotation=0):
             else:
                 scale=min(2,2200/max(page.rect.width,page.rect.height))
                 pix=page.get_pixmap(matrix=pymupdf.Matrix(scale,scale),alpha=False,annots=False)
-                image=Image.open(io.BytesIO(pix.tobytes('png'))).convert('RGB').rotate(-rotation,expand=True)
+                page_rotation=rotation
+                if rotation==0 and page.rotation in (90,270) and page.cropbox.width>page.cropbox.height and page.rect.width<page.rect.height:
+                    page_rotation=(360-page.rotation)%360
+                    notes.append(f'Page {page.number+1}: sideways scan automatically rotated for OCR and editing.')
+                image=Image.open(io.BytesIO(pix.tobytes('png'))).convert('RGB').rotate(-page_rotation,expand=True)
                 if image.width*image.height>25_000_000:raise ValueError('Page exceeds OCR size limit.')
                 ocr_results=_ocr(image)
+                # Sideways accounting scans often contain upright PDF page metadata.
+                # Detect vertical amount polygons before deriving rows and headers.
+                vertical=[b for b,t,s in ocr_results if s>=.85 and _is_amount(t.strip(),locale)]
+                if page_rotation==0 and len(vertical)>=10 and sum((max(p[1] for p in b)-min(p[1] for p in b))>1.25*(max(p[0] for p in b)-min(p[0] for p in b)) for b in vertical)>len(vertical)*.7:
+                    page_rotation=90;image=image.rotate(-90,expand=True);ocr_results=_ocr(image)
+                    notes.append(f'Page {page.number+1}: sideways scan automatically rotated clockwise for OCR and editing.')
+                cleaned=[]
+                for box,text,confidence in ocr_results:
+                    candidate=text.strip()
+                    if locale=='de' and not _is_amount(candidate,locale) and re.fullmatch(r"[\dO.,'\-]+[SH]?",candidate) and any(c in candidate for c in ",.'"):
+                        # Re-read a suspicious numeric token at higher resolution.
+                        # Never guess a missing amount from the account formula.
+                        crop_box=(max(0,int(min(p[0] for p in box))-8),max(0,int(min(p[1] for p in box))-8),min(image.width,int(max(p[0] for p in box))+8),min(image.height,int(max(p[1] for p in box))+8))
+                        crop=image.crop(crop_box);crop=crop.resize((crop.width*3,crop.height*3))
+                        retry=[(t.strip(),float(s)) for _,t,s in _ocr(crop) if s>=.85 and _is_amount(t.strip(),locale)]
+                        if len(retry)==1:candidate,confidence=retry[0]
+                    if locale=='de' and re.fullmatch(r'[\dO.,-]+[SH]?',candidate):
+                        corrected=candidate.replace('O','0')
+                        if re.fullmatch(r'-?\d+\.\d{2}[SH]?',corrected):corrected=corrected.replace('.',',')
+                        if _is_amount(corrected,locale):candidate=corrected
+                    cleaned.append((box,candidate,confidence))
+                ocr_results=cleaned
+                ocr_pages[str(page.number+1)]=[{'box':[min(p[0] for p in b)/scale,min(p[1] for p in b)/scale,max(p[0] for p in b)/scale,max(p[1] for p in b)/scale], 'text':t,'confidence':float(s)} for b,t,s in ocr_results if s>=.75]
                 for box,text,confidence in ocr_results:
                     try:value,suffix=parse_amount(text.strip(),locale)
                     except ValueError:continue
-                    if confidence<0.85:continue
+                    if confidence<0.75:continue
                     xs=[p[0] for p in box];ys=[p[1] for p in box]
                     center_y=sum(ys)/len(ys)
                     row_context=sorted([(min(p[0] for p in other_box),other_text) for other_box,other_text,other_score in ocr_results if other_score>=0.75 and abs(sum(p[1] for p in other_box)/len(other_box)-center_y)<=max(12,(max(ys)-min(ys))*.8)])
                     context=' | '.join(t for _,t in row_context)[:500]
                     ocr_items=[([min(p[0] for p in b),min(p[1] for p in b),max(p[0] for p in b),max(p[1] for p in b)],t) for b,t,s in ocr_results if s>=0.75]
                     label,column=_label_and_column(ocr_items,[min(xs),min(ys),max(xs),max(ys)],locale)
-                    cells.append({'id':f'c{len(cells)+1}','page':page.number+1,'text':text.strip(),'value':str(value),'suffix':suffix,'context':context or f'OCR region ({round(confidence*100)}% confidence)','label':label,'column':column,'box':[min(xs)/scale,min(ys)/scale,max(xs)/scale,max(ys)/scale],'mode':'ocr','rotation':rotation})
+                    cells.append({'id':f'c{len(cells)+1}','page':page.number+1,'text':text.strip(),'value':str(value),'suffix':suffix,'context':context or f'OCR region ({round(confidence*100)}% confidence)','label':label,'column':column,'box':[min(xs)/scale,min(ys)/scale,max(xs)/scale,max(ys)/scale],'mode':'ocr','rotation':page_rotation,'confidence':float(confidence),'editable':bool(confidence>=.85)})
                 notes.append(f'Page {page.number+1}: amounts extracted with OCR; verify every selected value and region.')
         if not cells:raise ValueError('No amounts with two decimals found. Check number format and scan rotation.')
-        return {'pages':len(doc),'cells':cells,'locale':locale,'notes':notes,'automatic_rules':False}
+        return {'pages':len(doc),'cells':cells,'locale':locale,'notes':notes,'automatic_rules':False,'ocr_pages':ocr_pages}
 
 
 def calculate(extracted,edits,rules):
@@ -128,6 +155,7 @@ def calculate(extracted,edits,rules):
     for edit in edits:
         key=edit['id']
         if key not in cells or key in by_target:raise ValueError('Edit a source amount, not a calculated target.')
+        if cells[key].get('editable') is False:raise ValueError('This field is derived or has insufficient OCR confidence for editing.')
         value,suffix=parse_amount(edit['value'],extracted['locale'])
         if suffix!=cells[key]['suffix']:raise ValueError('Preserve the original S/H direction; changing debit/credit direction needs separate accounting rules.')
         if suffix and value<0:raise ValueError('S/H amounts must be non-negative magnitudes. Do not combine a minus sign with a debit/credit suffix.')
@@ -165,7 +193,10 @@ def preview_cell(data,extracted,cell_id):
         image=Image.open(io.BytesIO(pix.tobytes('png'))).convert('RGB').rotate(-cell['rotation'],expand=True)
         ImageDraw.Draw(image).rectangle([v*scale for v in cell['box']],outline='red',width=4)
         image.thumbnail((1600,1600));out=io.BytesIO();image.save(out,format='PNG')
-        return {'image':base64.b64encode(out.getvalue()).decode(),'page':cell['page']}
+        width,height=page.rect.width,page.rect.height
+        if cell['rotation'] in (90,270):width,height=height,width
+        return {'image':base64.b64encode(out.getvalue()).decode(),'page':cell['page'],
+                'width':width,'height':height,'rotation':cell['rotation']}
 
 
 def render_changes(data,extracted,edits,rules,allow_raster=False):
@@ -186,6 +217,7 @@ def render_changes(data,extracted,edits,rules,allow_raster=False):
             pix=page.get_pixmap(matrix=pymupdf.Matrix(scale,scale),alpha=False,annots=True)
             image=Image.open(io.BytesIO(pix.tobytes('png'))).convert('RGB').rotate(-rotation,expand=True)
             for cell in changes:
+                if cell.get('confidence',1)<.85:raise ValueError('A changed field has insufficient OCR confidence. Review or re-scan the source before export.')
                 box=[int(round(v*scale)) for v in cell['box']];x0,y0,x1,y1=box
                 if cell['mode']=='ocr':
                     # OCR coordinates were generated at a lower resolution, in the same rotated frame.

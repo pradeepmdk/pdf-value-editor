@@ -5,11 +5,21 @@ from general_finance import signed_extract, calculate, render_changes
 
 
 def analyze(data, locale='de', rotation=0):
+    from statement_profiles import recognize, recognize_scan
+    recognized = recognize(data, locale, rotation)
+    if recognized is not None:
+        result = {'analysis': {'kind': 'general_finance', 'digest': hashlib.sha256(data).hexdigest(), 'statement': recognized}}
+        from scan_editor import _signature
+        result['signature'] = _signature(result['analysis'])
+        return result
     with pymupdf.open(stream=data, filetype='pdf') as doc:
         text = ''.join(page.get_text() for page in doc)
     if 'DATEV-BWA' not in text or 'BWA Form 01' not in text:
         result = signed_extract(data, locale, rotation)
         result['analysis']['statement']['export_mode'] = 'image'
+        recognized = recognize_scan(result['analysis']['statement'])
+        if recognized is not None:
+            result['analysis']['statement'] = recognized
     else:
         from finance import analyze as analyze_bwa, RULES, amount
         source = analyze_bwa(data)
@@ -37,6 +47,11 @@ def analyze(data, locale='de', rotation=0):
 
 
 def plan(data, extracted, edits, rules):
+    if extracted.get('profile'):
+        from statement_profiles import calculate_profile
+        if rules != extracted['profile_rules']:
+            raise ValueError('Verified format rules changed or are incomplete. Recalculate from the original analysis.')
+        return calculate_profile(extracted, edits)
     if extracted.get('export_mode') == 'direct' and not rules:
         raise ValueError('No reviewed dependencies were supplied. Click Identify affected fields, review the suggestions, then Accept reviewed dependencies before verifying changes.')
     result = calculate(extracted, edits, rules)
@@ -55,6 +70,21 @@ def plan(data, extracted, edits, rules):
 
 def apply(data, extracted, edits, rules, allow_raster=False):
     result = plan(data, extracted, edits, rules)
+    if extracted.get('profile'):
+        if any(c['mode']=='ocr' for c in result['changes']):
+            if not allow_raster:
+                raise ValueError('This SuSa is a scan. Enable image-based scan export and inspect the preview before downloading.')
+            from scan_finance import apply_scan
+            output = apply_scan(data, result['changes'])
+        else:
+            from native_finance import apply_native
+            output = apply_native(data,result['changes'])
+            # Re-extract the saved statement and recheck every printed formula.
+            from statement_profiles import recognize
+            saved = recognize(output,extracted['locale'])
+            if saved is None or not saved['verified']:
+                raise ValueError('Saved statement failed formula verification.')
+        return output,result
     if extracted.get('export_mode') != 'direct':
         if any(c['mode'] == 'ocr' for c in result['changes']):
             if not allow_raster:

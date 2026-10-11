@@ -10,7 +10,7 @@ from pdf_editor import edit_pdf, select_text
 class PDFEditorTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.source = (Path(__file__).resolve().parent.parent / 'BWA-ganzjaehrig-2025.pdf').read_bytes()
+        cls.source = (Path(__file__).resolve().parent.parent / '10-10-docs' / 'BWA-ganzjaehrig-2025.pdf').read_bytes()
 
     def test_all_matches_and_unchanged_layout(self):
         result, count, pages = edit_pdf(self.source, '52.315,78', '62.315,78')

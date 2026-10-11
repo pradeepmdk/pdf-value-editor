@@ -32,6 +32,10 @@ def status():
 
 def inspect_document(extracted):
     """Interpret report structure before any replacement is selected."""
+    if extracted.get('profile'):
+        return {'report_type':extracted['report_type'],'summary':extracted['profile_note'],
+                'independent_ids':[c['id'] for c in extracted['cells'] if c.get('editable') is True],
+                'uncertainties':extracted.get('discrepancies',[]),'model':'verified-format-rules'}
     key = os.environ.get('OPENROUTER_API_KEY') or os.environ.get('OPEN_ROUTER_KEY')
     if not key:
         raise ValueError('Configure your OpenRouter key and restart the server.')
@@ -79,6 +83,12 @@ def inspect_document(extracted):
 
 
 def decide(extracted, edits):
+    if extracted.get('profile'):
+        from statement_profiles import calculate_profile
+        result=calculate_profile(extracted,edits)
+        return {'model':'verified-format-rules','suggestions':extracted['profile_rules'],
+                'changes':result['changes'],'decisions':[],'unresolved':[],
+                'advisory_only':False,'note':result['note']}
     cells = {c['id']: c for c in extracted['cells']}
     if not isinstance(edits, list) or any(not isinstance(e, dict) for e in edits):
         raise ValueError('Provide valid changed amounts.')

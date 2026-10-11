@@ -13,7 +13,7 @@ from jev_dependencies import decide, candidates
 class WorkflowTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.data = (Path(__file__).resolve().parent.parent / 'BWA-ganzjaehrig-2025.pdf').read_bytes()
+        cls.data = (Path(__file__).resolve().parent.parent / '10-10-docs' / 'BWA-ganzjaehrig-2025.pdf').read_bytes()
 
     def source(self):
         return validate_analysis(self.data, analyze(self.data))

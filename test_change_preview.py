@@ -27,7 +27,7 @@ class PreviewTests(unittest.TestCase):
             self.assertTrue(marks[0].rect.contains(pymupdf.Rect(word[:4])))
 
     def test_all_bwa_changes_marked_without_marking_download(self):
-        data=(Path(__file__).parent.parent/'BWA-ganzjaehrig-2025.pdf').read_bytes()
+        data=(Path(__file__).parent.parent/'10-10-docs'/'BWA-ganzjaehrig-2025.pdf').read_bytes()
         extracted=validate_analysis(data,analyze(data))
         edits=[{'id':'revenue_0','value':'62.315,78'}]
         output,result=apply(data,extracted,edits,extracted['candidate_rules'])

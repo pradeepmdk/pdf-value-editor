@@ -60,6 +60,8 @@ def analyze(items, locale='de', rotation=0):
     for d in documents:
         signed = analyze_document(d['data'], locale, rotation)
         s = validate_analysis(d['data'], signed)
+        if s.get('profile'):
+            raise ValueError('Use the individual verified finance workflow for this cash-basis BWA or scanned ADDISON SuSa. Cross-report account allocation for these layouts is not supported.')
         if s['locale'] != locale:
             raise ValueError('All reports must use the selected number format.')
         for c in s['cells']:

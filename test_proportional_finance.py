@@ -10,7 +10,7 @@ from proportional_finance import scenario
 class ProportionalTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.data = (Path(__file__).resolve().parent.parent / 'BWA-ganzjaehrig-2025.pdf').read_bytes()
+        cls.data = (Path(__file__).resolve().parent.parent / '10-10-docs' / 'BWA-ganzjaehrig-2025.pdf').read_bytes()
         cls.source = validate_analysis(cls.data, analyze(cls.data))
 
     def test_income_halved_scales_costs_and_keeps_other_months(self):

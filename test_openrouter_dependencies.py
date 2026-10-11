@@ -13,7 +13,7 @@ from openrouter_dependencies import decide
 class GPTDependenciesTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.data = (Path(__file__).parent.parent / 'BWA-ganzjaehrig-2025.pdf').read_bytes()
+        cls.data = (Path(__file__).parent.parent / '10-10-docs' / 'BWA-ganzjaehrig-2025.pdf').read_bytes()
         cls.source = validate_analysis(cls.data, analyze(cls.data))
 
     def response(self, request, **kwargs):

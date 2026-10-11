@@ -76,7 +76,7 @@ class LinkedTests(unittest.TestCase):
 
     def test_original_bwa_native_amounts(self):
         from finance import plan as bwa_plan, analyze as bwa_analyze
-        data = (Path(__file__).parent.parent/'BWA-ganzjaehrig-2025.pdf').read_bytes()
+        data = (Path(__file__).parent.parent/'10-10-docs'/'BWA-ganzjaehrig-2025.pdf').read_bytes()
         changes = bwa_plan(data, [{'row':'revenue','column':0,'value':'62.315,78'}])['changes']
         mapped = [{**c, 'page':1, 'box':c['rect'], 'text':c['old'], 'mode':'text'} for c in changes]
         output = apply_exact(data, mapped, 'de')

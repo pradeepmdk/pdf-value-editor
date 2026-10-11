@@ -10,6 +10,11 @@ def _marked(data, changes, modified):
         for change in changes:
             page = doc[change['page']-1]
             old = pymupdf.Rect(change['box'])
+            if change.get('mode')=='ocr' and change.get('rotation'):
+                transform=pymupdf.Matrix(change['rotation'])
+                rotated=pymupdf.Rect(0,0,page.rect.width,page.rect.height)*transform
+                transform=transform*pymupdf.Matrix(1,0,0,1,-rotated.x0,-rotated.y0)
+                old=old*~transform
             rect = old
             if modified and change.get('mode') != 'ocr':
                 # Replacement can be longer: locate its actual saved bounds rather

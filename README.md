@@ -155,3 +155,32 @@ ADDISON SuSa automatically reads the sideways scan upright and validates all six
 The supplied reviewed/recalculated SuSa copy is recognized but contains an inconsistent PKW opening balance while its closing balance/subtotals remain unchanged. Its discrepancies are shown and recalculation is blocked. Original uploads are never overwritten. Cross-report account allocation for the two new profiles remains unsupported.
 
 Run `..\.venv\Scripts\python.exe -m unittest test_statement_profiles -v` for the supplied native and scanned sample checks; OCR tests take several minutes. Annual sample fixtures now use the `10-10-docs` path.
+
+## Profit / loss targets
+
+In **Change an amount**, enable **Set a profit / loss target**, choose Profit or
+Loss and a result period. The input selected above (or in the PDF preview) is
+used automatically; there is no second input selector. If there is no eligible
+selection for the result period, a verified input is selected automatically and
+shown above the preview action. Changing the input dropdown is optional. Enter a positive
+target magnitude, then click **Preview profit / loss changes**. Review the input
+adjustments and dependent totals before choosing **Create PDF with these changes**.
+Pending changes are included; the chosen adjustment input is solved to reach the
+desired final result. This mode uses verified formulas and Decimal, without an AI
+dependency request, and cannot be combined with proportional simulation.
+
+For the cash-basis BWA and SuSa, a selected monthly input can also reach a
+year-to-date target through the verified monthly-to-year-to-date propagation.
+An explicit pending override of that year-to-date input takes precedence and
+must be removed before solving the annual target through the monthly input.
+
+Supported references: annual DATEV BWA 01 (monthly or annual result), DATEV
+cash-basis BWA (month or year-to-date), and the recognized ADDISON SuSa sample
+(month or year-to-date). SuSa shows a computed net credit-minus-debit result from
+account classes 4–7; it does not insert a new result row. Select an explicit
+opposite-column balance-sheet counterpart. Balanced totals, OCR confidence,
+original S/H direction and scan-export consent remain required. Sources with
+unexplained discrepancies remain blocked.
+
+Checks: `node test_profit_loss_ui.js` and
+`..\.venv\Scripts\python.exe -m unittest test_profit_loss -v`.

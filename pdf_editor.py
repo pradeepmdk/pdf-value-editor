@@ -208,11 +208,11 @@ class Handler(BaseHTTPRequestHandler):
             page = page.replace('</main>', panel + '</main>')
             # Serve one current document so stale or blocked companion scripts
             # cannot leave the obsolete analysis-only handler active.
-            for name in ('linked-finance.js', 'amount-format.js', 'finance-edits.js', 'finance-preview.js'):
+            for name in ('linked-finance.js', 'amount-format.js', 'finance-edits.js', 'finance-preview.js', 'finance-profit-loss.js'):
                 script = Path(__file__).with_name(name).read_text(encoding='utf-8')
                 page = page.replace('<script src="/' + name + '"></script>', '<script>\n' + script + '\n</script>')
             return self.reply(200, page.encode(), 'text/html; charset=utf-8')
-        if self.path in ('/linked-finance.js', '/finance-edits.js', '/finance-preview.js', '/amount-format.js'):
+        if self.path in ('/linked-finance.js', '/finance-edits.js', '/finance-preview.js', '/finance-profit-loss.js', '/amount-format.js'):
             name = self.path.lstrip('/')
             kind = 'text/javascript; charset=utf-8' if name.endswith('.js') else 'text/html; charset=utf-8'
             return self.reply(200, Path(__file__).with_name(name).read_bytes(), kind)
@@ -284,10 +284,28 @@ class Handler(BaseHTTPRequestHandler):
                 result['signature'] = _signature(result['analysis'])
                 result['inspection'] = inspection
                 return self.reply(200,result)
+            if self.path in ('/api/finance/profit-loss-options', '/api/finance/profit-loss-preview'):
+                from general_finance import validate_analysis
+                from profit_loss import options, resolve
+                extracted=validate_analysis(data,request['analysis'])
+                if self.path.endswith('-options'):
+                    return self.reply(200,options(extracted))
+                result=resolve(extracted,request.get('edits',[]),request.get('profit_loss'))
+                from finance_workflow import plan
+                # Includes the native annual-layout coverage check.
+                plan(data,extracted,result['edits'],result['rules'])
+                return self.reply(200,result)
             if self.path in ('/api/finance/workflow-plan','/api/finance/workflow-apply'):
                 from general_finance import validate_analysis
                 from finance_workflow import plan,apply
                 extracted=validate_analysis(data,request['analysis'])
+                goal_result=None
+                if request.get('profit_loss') is not None:
+                    if request.get('proportional_simulation') is True:
+                        raise ValueError('Choose either a profit/loss target or proportional simulation.')
+                    from profit_loss import resolve
+                    goal_result=resolve(extracted,request.get('edits',[]),request['profit_loss'])
+                    request={**request,'edits':goal_result['edits'],'rules':goal_result['rules']}
                 if request.get('proportional_simulation') is True:
                     from proportional_finance import scenario
                     if self.path.endswith('-plan'):
@@ -296,8 +314,11 @@ class Handler(BaseHTTPRequestHandler):
                     from change_preview import previews
                     return self.reply(200,{'pdf':base64.b64encode(output).decode(), 'highlighted':previews(data,output,result['changes']), **result})
                 if self.path.endswith('-plan'):
-                    return self.reply(200,plan(data,extracted,request['edits'],request['rules']))
+                    result=plan(data,extracted,request['edits'],request['rules'])
+                    if goal_result:result['profit_loss']=goal_result['profit_loss']
+                    return self.reply(200,result)
                 output,result=apply(data,extracted,request['edits'],request['rules'],request.get('allow_raster') is True)
+                if goal_result:result['profit_loss']=goal_result['profit_loss']
                 from change_preview import previews
                 return self.reply(200,{'pdf':base64.b64encode(output).decode(), 'highlighted':previews(data,output,result['changes']), **result})
             if self.path == '/api/general/analyze':

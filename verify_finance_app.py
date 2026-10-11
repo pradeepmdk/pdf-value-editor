@@ -23,6 +23,7 @@ with urllib.request.urlopen(URL+'/finance',timeout=10) as response:
     assert response.status==200
     assert 'Recognized BWA and SuSa layouts use verified format rules' in page
     assert 'rules=proposal.suggestions.map(r=>({...r,' in page
+    assert 'Set a profit / loss target' in page
 data=(ROOT/'10-10-docs/10257_BWA_2024-12_261009_205509.pdf').read_bytes()
 prepared=post('/api/finance/prepare',data,binary=True)
 token=prepared['upload_token']
@@ -50,5 +51,23 @@ with pymupdf.open(stream=base64.b64decode(saved['pdf']),filetype='pdf') as doc:
     assert '3.837,82' in doc[0].get_text()
     assert '-10.613,65' in doc[0].get_text()
     assert '3.837,82' in doc[2].get_text()
-print('PASS: live upload, analysis job, recognized format, field preview, dependencies, plan, export and highlighted preview')
+config=post('/api/finance/profit-loss-options',payload)
+assert len(config['periods'])==2
+assert 'c1' in config['periods'][1]['sources']
+goal={'kind':'profit','period':config['periods'][1]['id'],'source':'c1','amount':'1.000.000,00'}
+goal_payload={'upload_token':token,'analysis':signed,'edits':[],'rules':[], 'profit_loss':goal}
+previewed=post('/api/finance/profit-loss-preview',goal_payload)
+assert previewed['profit_loss']['after']=='1.000.000,00'
+planned=post('/api/finance/workflow-plan',goal_payload)
+saved=post('/api/finance/workflow-apply',goal_payload)
+assert saved['changes']==planned['changes']==previewed['changes']
+assert saved['profit_loss']['after']=='1.000.000,00'
+with pymupdf.open(stream=base64.b64decode(saved['pdf']),filetype='pdf') as doc:
+    assert '1.000.000,00' in doc[0].get_text()
+try:
+    post('/api/finance/profit-loss-preview',{**goal_payload,'profit_loss':{**goal,'amount':'-1.250,00'}})
+    raise AssertionError('Negative profit/loss magnitude was accepted')
+except urllib.error.HTTPError as error:
+    assert error.code==400
+print('PASS: live upload, analysis, preview, dependencies, plan, export, highlights and profit/loss target preview/export/validation')
 print('App: '+URL+'/finance')

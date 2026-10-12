@@ -13,7 +13,7 @@ function $(id){if(!elements.has(id))elements.set(id,new Element());return elemen
 const cells=[{id:'revenue',text:'2.000,00',value:'2000',context:'Revenue / Month',page:1,editable:true},{id:'staff',text:'500,00',value:'500',context:'Payroll / Month',page:1,editable:true},{id:'revenue_next',text:'2.000,00',context:'Revenue / Next month',page:1,editable:true},{id:'unrelated',text:'0,00',context:'Unrelated input',page:1,editable:true}];
 const calls=[];
 const context={document:{createElement:()=>{const e=new Element();created.push(e);return e},querySelector:()=> $('replacementLabel'),getElementById:id=>elements.get(id)},Option:function(text,value){this.textContent=text;this.value=value},$: $,analysis:null,pdf:'original',busy:false,resultUrl:null,
- statement:()=>({cells}),cell:id=>cells.find(c=>c.id===id),status:()=>{},table:()=>{},pdfUrl:()=> 'blob:result',URL:{revokeObjectURL:()=>{}},normalizeFinancialAmount:require('./amount-format.js').normalizeFinancialAmount,
+ statement:()=>({cells}),cell:id=>cells.find(c=>c.id===id),status:()=>{},table:()=>{},pdfUrl:()=> 'blob:result',displayModifiedPdf:()=>{$('result').src='blob:highlighted';$('resultWrap').hidden=false},URL:{revokeObjectURL:()=>{}},normalizeFinancialAmount:require('./amount-format.js').normalizeFinancialAmount,
  controls:()=>{$('value').disabled=context.busy;$('proportionalSimulation').disabled=context.busy},reset:()=>{context.analysis=null;context.controls()},invalidate:()=>{context.controls()},selectInput:async()=>{},payload:()=>({pdf:'original',analysis:context.analysis,edits:[],rules:[]}),
  api:async(path,data)=>{calls.push({path,data});if(path.endsWith('-options'))return {periods:[{id:'final_0',label:'Month',current:'1.500,00',sources:['revenue','staff']},{id:'final_1',label:'Next month',current:'2.000,00',sources:['revenue_next']},{id:'ytd',label:'Year to date',current:'3.500,00',sources:['revenue','staff','revenue_next']}],note:'Verified result',requires_counterpart:false};if(path.endsWith('-analyze'))return {analysis:{statement:{cells}}};if(path.endsWith('-preview'))return {changes:[],rules:[],profit_loss:{period:'Month',before:'1.500,00',after:'-1.000,00'}};if(path.endsWith('-apply'))return {pdf:'edited',changes:[],profit_loss:{period:'Month',after:'-1.000,00'}};throw Error(path)}
 };
@@ -37,6 +37,7 @@ vm.createContext(context);vm.runInContext(fs.readFileSync('finance-profit-loss.j
  await $('affected').onclick();assert.equal(calls.at(-1).path,'/api/finance/profit-loss-preview');
  const create=created.find(e=>e.textContent==='Create PDF with these changes');
  assert.equal(create.disabled,false);await create.onclick();assert.equal(calls.at(-1).path,'/api/finance/workflow-apply');assert.equal(calls.at(-1).data.profit_loss.kind,'loss');assert.equal($('download').hidden,false);
+ assert.equal($('result').src,'blob:highlighted');assert.equal($('download').href,'blob:result');
  // A later input change clears review; switching off restores the normal input.
  $('profitLossAmount').value='2000';$('profitLossAmount').oninput();assert.equal(create.disabled,true);
  $('profitLossEnabled').checked=false;$('profitLossEnabled').onchange();

@@ -88,7 +88,7 @@ create.onclick=async()=>{
  try{const r=await api('/api/finance/workflow-apply',{...batch,allow_raster:$('raster').checked});
   if(resultUrl)URL.revokeObjectURL(resultUrl);resultUrl=pdfUrl(r.pdf);$('download').href=resultUrl;
   $('download').download=$('file').files[0].name.replace(/\.[^.]+$/,'')+'-profit-loss-recalculated.pdf';$('download').textContent='Download recalculated PDF';$('download').hidden=false;
-  $('result').src=resultUrl;$('resultWrap').hidden=false;status(`${r.profit_loss.period} result: ${r.profit_loss.after}. ${r.changes.length} fields changed. Inspect the final PDF preview before downloading.`);
+  displayModifiedPdf();status(`${r.profit_loss.period} result: ${r.profit_loss.after}. ${r.changes.length} fields changed. Inspect the highlighted changes in the final PDF preview before downloading.`);
   $('resultWrap').scrollIntoView({behavior:'smooth',block:'start'});
  }catch(e){status(e.message,true)}finally{busy=false;controls()}
 };

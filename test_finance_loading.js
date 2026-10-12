@@ -35,5 +35,8 @@ vm.runInContext(fs.readFileSync('finance-profit-loss.js','utf8'),context);
  get('input').replaceChildren(new context.Option('Loading amounts...',''));context.controls();
  assert.equal(get('input').value,'c1');
  assert.equal(get('affected').disabled,false);assert.equal(context.payload().profit_loss.source,'c1');assert.equal(context.payload().profit_loss.period,'ytd');
+ const previewLines=fs.readFileSync('finance-preview.js','utf8').split(/\r?\n/);
+ vm.runInContext("let highlightedUrl='blob:marked';function selectedPage(){return 1;}"+previewLines.find(line=>line.startsWith('function showPage()'))+previewLines.find(line=>line.startsWith('const plainDisplay=displayModifiedPdf;'))+"resultUrl='blob:clean';displayModifiedPdf();",context);
+ assert.equal(get('result').src,'blob:marked#page=1');assert.equal(get('resultWrap').hidden,false);
  console.log('PASS: real analysis/loading/profit handlers clear the loading placeholder and enable a 100.000,00 year-to-date target without manual input selection');
 })().catch(e=>{console.error(e);process.exitCode=1});

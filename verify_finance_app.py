@@ -62,8 +62,11 @@ planned=post('/api/finance/workflow-plan',goal_payload)
 saved=post('/api/finance/workflow-apply',goal_payload)
 assert saved['changes']==planned['changes']==previewed['changes']
 assert saved['profit_loss']['after']=='1.000.000,00'
+with pymupdf.open(stream=base64.b64decode(saved['highlighted']['after']),filetype='pdf') as doc:
+    assert sum(len(list(page.annots() or [])) for page in doc)==len(saved['changes'])
 with pymupdf.open(stream=base64.b64decode(saved['pdf']),filetype='pdf') as doc:
     assert '1.000.000,00' in doc[0].get_text()
+    assert not any(list(page.annots() or []) for page in doc)
 try:
     post('/api/finance/profit-loss-preview',{**goal_payload,'profit_loss':{**goal,'amount':'-1.250,00'}})
     raise AssertionError('Negative profit/loss magnitude was accepted')

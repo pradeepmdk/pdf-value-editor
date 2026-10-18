@@ -23,7 +23,8 @@ with urllib.request.urlopen(URL+'/finance',timeout=10) as response:
     assert response.status==200
     assert 'Recognized BWA and SuSa layouts use verified format rules' in page
     assert 'rules=proposal.suggestions.map(r=>({...r,' in page
-    assert 'Set a profit / loss target' in page
+    assert 'Set a profit / loss target' not in page
+    assert 'Realistic expense planning' in page
 data=(ROOT/'10-10-docs/10257_BWA_2024-12_261009_205509.pdf').read_bytes()
 prepared=post('/api/finance/prepare',data,binary=True)
 token=prepared['upload_token']
@@ -39,6 +40,9 @@ assert signed['analysis']['statement']['profile']=='datev_cash_basis'
 assert signed['inspection']['model']=='verified-format-rules'
 payload={'upload_token':token,'analysis':signed,'edits':[{'id':'c1','value':'3.837,82'}]}
 assert post('/api/general/preview',{**payload,'id':'c1'})['image']
+for number in range(1,11):
+    page_preview=post('/api/general/page-preview',{**payload,'page':number})
+    assert page_preview['page']==number and page_preview['image'] and page_preview['width']>0
 proposal=post('/api/general/dependencies',payload)
 assert not proposal['unresolved']
 payload['rules']=proposal['suggestions']

@@ -61,6 +61,31 @@ def _input_coefficients(statement, definition, explicit=()):
     return {key: value for key, value in coefficients.items() if value}
 
 
+REVENUE_ROWS = {'revenue', 'betrieblichertatigkeit', 'umsatzerlose', 'erlose'}
+
+
+def _is_revenue(cell):
+    row = str(cell.get('row', ''))
+    return row in REVENUE_ROWS or (row.isdigit() and 4000 <= int(row) < 5000)
+
+
+def _default_source(by_id, definition, sources):
+    """Prefer the turnover printed in the result's own period column.
+
+    A year-to-date target must change the yearly turnover, not December's,
+    so the remaining amounts stay as printed.
+    """
+    target = by_id.get(definition['target']) if definition['target'] else None
+    column = target.get('column_index') if target else max(
+        (by_id[key].get('column_index', 0) for key in sources), default=0)
+    same_column = [key for key in sources if by_id[key].get('column_index') == column]
+    for group in (same_column, sources):
+        revenue = [key for key in group if _is_revenue(by_id[key])]
+        if revenue:
+            return revenue[0]
+    return (same_column or sources)[0]
+
+
 def options(statement):
     by_id = {c['id']: c for c in statement['cells']}
     periods = []
@@ -70,11 +95,14 @@ def options(statement):
                    if coefficient in (Decimal(-1), Decimal(1)) and by_id[key].get('editable') is True]
         if not sources:
             continue
+        default = _default_source(by_id, definition, sources)
+        sources = [default] + [key for key in sources if key != default]
         target = definition['target']
         current = Decimal(by_id[target]['value']) if target else sum(
             (Decimal(by_id[key]['value']) * coefficient for key, coefficient in definition['coefficients'].items()), Decimal(0))
         periods.append({'id': definition['id'], 'label': definition['label'], 'target': target,
-                        'current': format_amount(current, statement['locale']), 'sources': sources})
+                        'current': format_amount(current, statement['locale']), 'sources': sources,
+                        'default_source': default})
     return {'periods': periods, 'requires_counterpart': statement.get('profile') == 'addison_susa',
             'note': ('SuSa profit/loss is net credit minus debit movements in account classes 4–7. '
                      'Uses the selected income/expense input with a balance-sheet counterpart. No new result row is added to the PDF.'

@@ -156,7 +156,10 @@ The supplied reviewed/recalculated SuSa copy is recognized but contains an incon
 
 Run `..\.venv\Scripts\python.exe -m unittest test_statement_profiles -v` for the supplied native and scanned sample checks; OCR tests take several minutes. Annual sample fixtures now use the `10-10-docs` path.
 
-## Profit / loss targets
+## Legacy profit / loss targets (UI hidden)
+
+The target UI below is retained only in legacy files/API for compatibility. The
+current page hides these controls and uses bounded expense planning instead.
 
 In **Change an amount**, enable **Set a profit / loss target**, choose Profit or
 Loss and a result period. The input selected above (or in the PDF preview) is
@@ -184,3 +187,88 @@ unexplained discrepancies remain blocked.
 
 Checks: `node test_profit_loss_ui.js` and
 `..\.venv\Scripts\python.exe -m unittest test_profit_loss -v`.
+
+## Bounded expense planning
+
+The current UI hides **Set a profit / loss target** and replaces uniform scaling
+with **Realistic expense planning**, enabled by default for recognized BWA/SuSa.
+Choose income or an expense from the normal input dropdown. Annual DATEV income
+also has an **Annual income** planning option: Python allocates the entered total
+across months using the printed revenue shares, with an exact cent total.
+
+After entering changes, **Preview realistic adjustments** asks the existing
+OpenRouter GPT-4.1 model to classify cost behaviour and propose tighter bounds.
+Only extracted expense labels, amounts, periods, positions and the requested
+changes are sent; the PDF file is not sent to the model. Python verifies response
+coverage and evidence IDs, then enforces conservative planning ceilings. These
+are assumptions for review, not industry standards or verified contract limits:
+
+- Telephone/internet: at most ±10%, with at most 0.25 revenue-response elasticity.
+- Rent, insurance, depreciation and taxes: fixed by default; no inferred tax rates.
+- Payroll: at most −10% / +25%, with at most 0.5 elasticity.
+- Eligible variable costs: at most −30% / +100%, with at most 1.0 elasticity.
+- Unknown costs and zero/negative baselines: remain unchanged.
+
+For a revenue change, `proposed cost = baseline × (1 + revenue change × elasticity)`,
+clamped to the reviewed range and rounded to cents. Explicit expense inputs outside
+their range are rejected with the permitted minimum/maximum. No cost absorbs a
+profit target. The model cannot widen the server ceilings or calculate money.
+
+Review the before/after values, limits, reasons and dependent totals before creating
+the PDF. The reviewed proposal is signed and bound to the original analysis; export
+does not call the model again and rejects altered/unreviewed proposals. Downloads
+preserve the original PDF content and metadata, with only the reviewed amount
+changes. No planning banner is added. The application displays the assumptions;
+the PDF preview highlights changed inputs and recalculated totals. Ordinary exact
+edits remain available by switching planning off.
+
+SuSa expense limits are checked on explicitly supplied entries. Automatic revenue-
+driven cost bookings are not invented: debit/credit counterparts, balance checks,
+source verification, OCR confidence and scan-export consent are still required.
+Unbalanced entries and the supplied discrepant reviewed SuSa remain blocked.
+
+Checks: `node test_finance_forecast.js`, `node test_finance_loading.js`,
+`..\.venv\Scripts\python.exe -m unittest test_expense_forecast -v`, and
+`..\.venv\Scripts\python.exe verify_expense_forecast.py` (one live paid model request).
+
+## Upload-time English/German analysis
+
+Select **Analysis language / Analysesprache** at the top of `/finance`. Upload
+extracts the PDF locally, then automatically requests an OpenRouter GPT-4.1
+explanation, including for recognized cash-basis BWA and ADDISON SuSa. Format
+validation and monetary calculations remain local. The PDF file is not sent:
+the model receives the extracted amount fields, labels, periods, header/footer
+context and source-backed facts. These upload explanations use OpenRouter credits.
+
+The side-panel overview shows income, expenses, result and expense categories in
+English or German. Monetary values come from printed fields or explicit Decimal
+calculations with source-page references. Year-to-date is kept distinct from a
+full-year total. SuSa net movements are labelled as computed figures, not printed
+BWA profit. The annual BWA shows all-year totals and individual months, including
+a distinction between total expense inputs and the printed operating-cost row.
+
+Language selection does not change number parsing, PDF contents or accounting
+rules. Each finished language summary is cached for the current upload. AI errors
+show a Retry button and do not prevent using the locally extracted fields.
+
+Checks: `node test_finance_summary.js`,
+`..\.venv\Scripts\python.exe -m unittest test_document_summary -v`, and
+`..\.venv\Scripts\python.exe verify_document_summary.py` (two live paid requests).
+
+The original preview displays the complete PDF by default. The separate page-image
+selection preview is removed; inputs are selected from the analysis or dropdown.
+The analysis overview includes page coverage with the amount count, reading method
+and editable-field count for every page. Click an editable amount in the overview
+or expense breakdown to select its input. Calculated totals remain read-only; SuSa
+net expense rows offer their individual debit/credit movements when applicable.
+
+After the overview is ready, **Change an amount** lists only the editable income
+and expense values represented in that overview. Option labels use the same
+translated category and reporting period, rather than the complete raw extraction
+list. Calculated totals remain read-only. Switching language updates the dropdown
+labels while preserving an eligible selected input and its replacement amount.
+
+The change-amount controls remain disabled until the upload's AI summary has
+finished. They never expose the temporary raw extraction list. Failed summaries
+keep editing disabled and offer a retry; only the completed analysis populates
+the dropdown.

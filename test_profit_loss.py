@@ -57,6 +57,19 @@ class BWAGoalTests(unittest.TestCase):
         self.assertEqual(annual_new-Decimal(annual_original['value']),Decimal(1000)-Decimal(monthly_original['value']))
         self.assertFalse(any(c['page']>6 for c in result['changes']))
 
+    def test_cash_ytd_defaults_to_yearly_turnover(self):
+        monthly,annual=options(self.cash)['periods']
+        by_id={c['id']:c for c in self.cash['cells']}
+        self.assertEqual(by_id[annual['default_source']]['text'],'41.623,64')
+        self.assertEqual(by_id[monthly['default_source']]['text'],'2.837,82')
+        result=resolve(self.cash,[],self.goal(self.cash,annual['id'],annual['default_source'],amount='100.000,00'))
+        changes={c['id']:c['new'] for c in result['changes']}
+        self.assertEqual(changes[annual['default_source']],'176.497,58')
+        self.assertEqual(changes[annual['target']],'100.000,00')
+        # December turnover and the December result stay as printed.
+        self.assertNotIn(monthly['default_source'],changes)
+        self.assertNotIn(monthly['target'],changes)
+
     def test_cash_ytd_loss_export(self):
         annual=options(self.cash)['periods'][1]
         source=next(c for c in self.cash['cells'] if c['id'] in annual['sources'] and c['column_index']==4)

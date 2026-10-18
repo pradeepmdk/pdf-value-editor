@@ -1,7 +1,7 @@
 /* A desired result is solved from verified formulas, then reviewed before export. */
 (()=>{
 const panel=document.createElement('div');
-panel.innerHTML='<label><input id="profitLossEnabled" type="checkbox" style="width:auto"> Set a profit / loss target</label><div id="profitLossFields" hidden><label for="profitLossKind">Desired result</label><select id="profitLossKind"><option value="profit">Profit</option><option value="loss">Loss</option></select><label for="profitLossPeriod">Result period</label><select id="profitLossPeriod"></select><p id="profitLossCurrent" class="hint"></p><label for="profitLossAmount">Target amount (positive value)</label><input id="profitLossAmount" inputmode="decimal" placeholder="1.000,00"><p id="profitLossSourceInfo" class="hint"></p><div id="profitLossCounterpartWrap" hidden><label for="profitLossCounterpart">Matching debit / credit input</label><select id="profitLossCounterpart"></select></div><p id="profitLossNote" class="hint"></p></div><p id="profitLossUnavailable" class="hint" hidden></p>';
+panel.innerHTML='<label><input id="profitLossEnabled" type="checkbox" style="width:auto"> Set a profit / loss target</label><div id="profitLossFields" hidden><label for="profitLossKind">Desired result</label><select id="profitLossKind"><option value="profit">Profit</option><option value="loss">Loss</option></select><label for="profitLossPeriod">Result period</label><select id="profitLossPeriod"></select><p id="profitLossCurrent" class="hint" hidden></p><label for="profitLossAmount">Target amount (positive value)</label><input id="profitLossAmount" inputmode="decimal" placeholder="1.000,00"><p id="profitLossSourceInfo" class="hint" hidden></p><div id="profitLossCounterpartWrap" hidden><label for="profitLossCounterpart">Matching debit / credit input</label><select id="profitLossCounterpart"></select></div><p id="profitLossNote" class="hint"></p></div><p id="profitLossUnavailable" class="hint" hidden></p>';
 $('current').after(panel);
 const review=document.createElement('div'),reviewTitle=document.createElement('h3'),reviewNote=document.createElement('p'),reviewTable=document.createElement('div'),create=document.createElement('button');
 const replacementLabel=document.querySelector('label[for="value"]');
@@ -17,6 +17,11 @@ function counterparts(){
  $('profitLossCounterpart').replaceChildren(new Option('Choose a matching entry',''),...choices.map(option));
  if(choices.some(c=>c.id===previous))$('profitLossCounterpart').value=previous;
 }
+function useDefaultSource(){
+ const next=cell(period()?.default_source);
+ if(next?.editable===true){$('input').value=next.id;$('value').value=next.text;$('current').textContent='Current amount: '+next.text}
+ showPeriod();
+}
 function showPeriod(){
  const p=period();
  if(p&&!p.sources.includes($('input').value)){
@@ -26,8 +31,8 @@ function showPeriod(){
   if(next){$('input').value=next.id;$('value').value=next.text;$('current').textContent='Current amount: '+next.text}
  }
  const selected=cell($('input').value);
- $('profitLossCurrent').textContent=p?'Current result: '+p.current:'';
- $('profitLossSourceInfo').textContent=p?.sources.includes(selected?.id)?'Using input: '+selected.context:'No verified input is available for this result period.';
+ $('profitLossCurrent').textContent=p?`Result printed in the PDF now: ${p.current}. Enter your target below, then click Preview.`:'';
+ $('profitLossSourceInfo').textContent=p?.sources.includes(selected?.id)?`Amount that will be adjusted: ${selected.context} (currently ${selected.text}). All other amounts stay as printed; totals recalculate.`:'No verified input is available for this result period.';
  counterparts();
 }
 function syncSelectedPeriod(){
@@ -42,6 +47,8 @@ const previousApi=api;api=async function(path,data){
  if(path==='/api/finance/workflow-analyze'){
   try{configuration=await previousApi('/api/finance/profit-loss-options',{pdf,analysis:r});
    $('profitLossPeriod').replaceChildren(...configuration.periods.map(p=>new Option(p.label,p.id)));
+   // Profit targets are usually yearly: start on the year-to-date / annual period.
+   if(configuration.periods.length)$('profitLossPeriod').value=configuration.periods.at(-1).id;
    $('profitLossCounterpartWrap').hidden=!configuration.requires_counterpart;
    $('profitLossNote').textContent=configuration.note;
   }catch(e){configuration=null;$('profitLossUnavailable').textContent=e.message}
@@ -68,8 +75,8 @@ const previousControls=controls;controls=function(){previousControls();const sup
  else $('affected').textContent='Recalculate & create PDF';
  create.disabled=busy||!reviewedBatch;
 };
-$('profitLossEnabled').onchange=()=>{if(active()){$('proportionalSimulation').checked=false;syncSelectedPeriod()}invalidate()};
-$('profitLossPeriod').onchange=()=>{showPeriod();invalidate()};
+$('profitLossEnabled').onchange=()=>{if(active()){$('proportionalSimulation').checked=false;useDefaultSource()}invalidate()};
+$('profitLossPeriod').onchange=()=>{useDefaultSource();invalidate()};
 $('profitLossKind').onchange=()=>invalidate();$('profitLossAmount').oninput=()=>invalidate();
 $('profitLossAmount').onblur=()=>{if(!$('profitLossAmount').value.trim())return;try{$('profitLossAmount').value=normalizeFinancialAmount($('profitLossAmount').value,$('locale').value,'')}catch(e){status(e.message,true)}};
 $('profitLossCounterpart').onchange=()=>invalidate();
@@ -79,6 +86,7 @@ const previousAffected=$('affected').onclick;$('affected').onclick=async()=>{
  let batch;try{batch=payload()}catch(e){status(e.message,true);return}
  invalidate();busy=true;controls();status('Calculating the selected input needed for your profit/loss target...');
  try{const r=await api('/api/finance/profit-loss-preview',batch);reviewNote.textContent=`${r.profit_loss.period}: ${r.profit_loss.before} → ${r.profit_loss.after}. Review the adjusted inputs and dependent totals before creating the PDF.`;
+  $('profitLossCurrent').textContent=`Result: ${r.profit_loss.before} in the PDF now → ${r.profit_loss.after} after these changes.`;
   table(reviewTable,['Field','Page','Before','After'],r.changes.map(c=>[c.context,c.page,c.text,c.new]));
   reviewedBatch={...batch,rules:r.rules};review.hidden=false;status('Profit/loss target verified. Review the proposed changes, then create the PDF.');
  }catch(e){status(e.message,true)}finally{busy=false;controls()}

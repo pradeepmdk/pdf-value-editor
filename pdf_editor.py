@@ -208,11 +208,11 @@ class Handler(BaseHTTPRequestHandler):
             page = page.replace('</main>', panel + '</main>')
             # Serve one current document so stale or blocked companion scripts
             # cannot leave the obsolete analysis-only handler active.
-            for name in ('linked-finance.js', 'amount-format.js', 'finance-edits.js', 'finance-preview.js', 'finance-profit-loss.js'):
+            for name in ('linked-finance.js', 'amount-format.js', 'finance-edits.js', 'finance-preview.js', 'finance-forecast.js', 'finance-summary.js'):
                 script = Path(__file__).with_name(name).read_text(encoding='utf-8')
                 page = page.replace('<script src="/' + name + '"></script>', '<script>\n' + script + '\n</script>')
             return self.reply(200, page.encode(), 'text/html; charset=utf-8')
-        if self.path in ('/linked-finance.js', '/finance-edits.js', '/finance-preview.js', '/finance-profit-loss.js', '/amount-format.js'):
+        if self.path in ('/linked-finance.js', '/finance-edits.js', '/finance-preview.js', '/finance-profit-loss.js', '/finance-forecast.js', '/finance-summary.js', '/amount-format.js'):
             name = self.path.lstrip('/')
             kind = 'text/javascript; charset=utf-8' if name.endswith('.js') else 'text/html; charset=utf-8'
             return self.reply(200, Path(__file__).with_name(name).read_bytes(), kind)
@@ -284,6 +284,31 @@ class Handler(BaseHTTPRequestHandler):
                 result['signature'] = _signature(result['analysis'])
                 result['inspection'] = inspection
                 return self.reply(200,result)
+            if self.path == '/api/general/page-preview':
+                from general_finance import validate_analysis,preview_page
+                extracted=validate_analysis(data,request['analysis'])
+                return self.reply(200,preview_page(data,extracted,page_number))
+            if self.path == '/api/finance/summary-start':
+                from general_finance import validate_analysis
+                from document_summary import summarize
+                from analysis_jobs import start
+                extracted=validate_analysis(data,request['analysis'])
+                language=request.get('language','en')
+                if language not in ('en','de'):raise ValueError('Choose English or German for the analysis language.')
+                return self.reply(200,start(lambda:summarize(extracted,language,data)))
+            if self.path in ('/api/finance/forecast-start', '/api/finance/forecast-preview', '/api/finance/forecast-apply'):
+                from general_finance import validate_analysis
+                from expense_forecast import preview as forecast_preview, export as forecast_export
+                extracted=validate_analysis(data,request['analysis'])
+                if self.path.endswith('-start'):
+                    from analysis_jobs import start
+                    edits=request.get('edits',[])
+                    return self.reply(200,start(lambda:forecast_preview(data,extracted,edits)))
+                if self.path.endswith('-preview'):
+                    return self.reply(200,forecast_preview(data,extracted,request.get('edits',[])))
+                output,result=forecast_export(data,extracted,request.get('forecast'),request.get('reviewed') is True,request.get('allow_raster') is True)
+                from change_preview import previews
+                return self.reply(200,{'pdf':base64.b64encode(output).decode(),'highlighted':previews(data,output,result['changes']),**result})
             if self.path in ('/api/finance/profit-loss-options', '/api/finance/profit-loss-preview'):
                 from general_finance import validate_analysis
                 from profit_loss import options, resolve

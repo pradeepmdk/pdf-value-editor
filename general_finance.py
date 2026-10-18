@@ -184,19 +184,28 @@ def validate_analysis(data,signed):
     return analysis['statement']
 
 
+def preview_page(data,extracted,page_number,cell_id=None):
+    if not isinstance(page_number,int) or not 1<=page_number<=extracted['pages']:raise ValueError('Invalid page number.')
+    candidates=[c for c in extracted['cells'] if c['page']==page_number]
+    cell=next((c for c in candidates if c['id']==cell_id),None) if cell_id else None
+    if cell_id and cell is None:raise ValueError('Unknown amount on this page.')
+    rotation=(cell or (candidates[0] if candidates else {})).get('rotation',0)
+    with pymupdf.open(stream=data,filetype='pdf') as doc:
+        page=doc[page_number-1];scale=min(2,2200/max(page.rect.width,page.rect.height))
+        pix=page.get_pixmap(matrix=pymupdf.Matrix(scale,scale),alpha=False)
+        image=Image.open(io.BytesIO(pix.tobytes('png'))).convert('RGB').rotate(-rotation,expand=True)
+        if cell:ImageDraw.Draw(image).rectangle([v*scale for v in cell['box']],outline='red',width=4)
+        image.thumbnail((1600,1600));out=io.BytesIO();image.save(out,format='PNG')
+        width,height=page.rect.width,page.rect.height
+        if rotation in (90,270):width,height=height,width
+        return {'image':base64.b64encode(out.getvalue()).decode(),'page':page_number,
+                'width':width,'height':height,'rotation':rotation}
+
+
 def preview_cell(data,extracted,cell_id):
     cell=next((c for c in extracted['cells'] if c['id']==cell_id),None)
     if not cell:raise ValueError('Unknown amount.')
-    with pymupdf.open(stream=data,filetype='pdf') as doc:
-        page=doc[cell['page']-1];scale=min(2,2200/max(page.rect.width,page.rect.height))
-        pix=page.get_pixmap(matrix=pymupdf.Matrix(scale,scale),alpha=False)
-        image=Image.open(io.BytesIO(pix.tobytes('png'))).convert('RGB').rotate(-cell['rotation'],expand=True)
-        ImageDraw.Draw(image).rectangle([v*scale for v in cell['box']],outline='red',width=4)
-        image.thumbnail((1600,1600));out=io.BytesIO();image.save(out,format='PNG')
-        width,height=page.rect.width,page.rect.height
-        if cell['rotation'] in (90,270):width,height=height,width
-        return {'image':base64.b64encode(out.getvalue()).decode(),'page':cell['page'],
-                'width':width,'height':height,'rotation':cell['rotation']}
+    return preview_page(data,extracted,cell['page'],cell_id)
 
 
 def render_changes(data,extracted,edits,rules,allow_raster=False):

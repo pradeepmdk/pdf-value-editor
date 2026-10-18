@@ -9,12 +9,13 @@ class Element{
  removeAttribute(){}
  setAttribute(){}
  after(){}
+ before(){}
  scrollIntoView(){}
- set innerHTML(html){for(const m of html.matchAll(/id="([^"]+)"/g))elements.set(m[1],new Element());get('profitLossKind').value='profit'}
+ set innerHTML(html){for(const m of html.matchAll(/id="([^"]+)"/g))elements.set(m[1],new Element());get('expensePlanning').checked=true}
  get options(){return this.children}
 }
 const get=id=>{if(!elements.has(id))elements.set(id,new Element());return elements.get(id)};
-const source={analysis:{statement:{locale:'de',pages:1,notes:[],export_mode:'native',cells:[
+const source={analysis:{statement:{locale:'de',pages:1,notes:[],export_mode:'native',profile:'datev_cash_basis',cells:[
  {id:'c1',text:'2.837,82',context:'Revenue / Month',page:1,editable:true,mode:'text'},
  {id:'c2',text:'100,00',context:'Calculated total',page:1,editable:false,mode:'text'}]}}};
 const context={document:{getElementById:get,createElement:()=>new Element(),querySelector:()=>get('replacementLabel')},Option:function(text,value){this.textContent=text;this.value=value},normalizeFinancialAmount:require('./amount-format.js').normalizeFinancialAmount,
@@ -25,18 +26,18 @@ const html=fs.readFileSync('finance.html','utf8');vm.runInContext(html.match(/<s
 const loading=fs.readFileSync('finance-preview.js','utf8').split(/\r?\n/).find(line=>line.startsWith('const loadingControls=controls;'));
 vm.runInContext(loading,context);context.source=source;
 vm.runInContext("pdf='original';api=async(path)=>path.endsWith('-analyze')?source:path.endsWith('-options')?{periods:[{id:'month',label:'Month',current:'-11.613,65',sources:['c1']},{id:'ytd',label:'Year to date',current:'-34.873,94',sources:['c1']}],requires_counterpart:false,note:'Verified result'}:{image:'preview',page:1};",context);
-vm.runInContext(fs.readFileSync('finance-profit-loss.js','utf8'),context);
+vm.runInContext(fs.readFileSync('finance-forecast.js','utf8'),context);
 (async()=>{
  await get('analyze').onclick();
  assert.equal(get('input').value,'c1');assert.equal(get('input').options.length,1);assert.equal(get('input').options[0].textContent.includes('Loading'),false);
  assert.equal(get('value').value,'2.837,82');assert.equal(get('selected').src,'data:image/png;base64,preview');assert.equal(get('input').disabled,false);
- get('profitLossEnabled').checked=true;get('profitLossEnabled').onchange();get('profitLossPeriod').value='ytd';get('profitLossPeriod').onchange();get('profitLossAmount').value='100.000,00';get('profitLossAmount').oninput();
+ assert.equal(elements.has('profitLossEnabled'),false);get('value').value='100.000,00';get('value').oninput();
  assert.equal(get('affected').disabled,false);
  get('input').replaceChildren(new context.Option('Loading amounts...',''));context.controls();
  assert.equal(get('input').value,'c1');
- assert.equal(get('affected').disabled,false);assert.equal(context.payload().profit_loss.source,'c1');assert.equal(context.payload().profit_loss.period,'ytd');
+ get('value').value='100.000,00';get('value').oninput();assert.equal(get('affected').disabled,false);assert.equal(context.payload().edits[0].id,'c1');
  const previewLines=fs.readFileSync('finance-preview.js','utf8').split(/\r?\n/);
  vm.runInContext("let highlightedUrl='blob:marked';function selectedPage(){return 1;}"+previewLines.find(line=>line.startsWith('function showPage()'))+previewLines.find(line=>line.startsWith('const plainDisplay=displayModifiedPdf;'))+"resultUrl='blob:clean';displayModifiedPdf();",context);
  assert.equal(get('result').src,'blob:marked#page=1');assert.equal(get('resultWrap').hidden,false);
- console.log('PASS: real analysis/loading/profit handlers clear the loading placeholder and enable a 100.000,00 year-to-date target without manual input selection');
+ console.log('PASS: real analysis/loading/forecast handlers clear the loading placeholder, hide target controls and retain highlighted previews');
 })().catch(e=>{console.error(e);process.exitCode=1});

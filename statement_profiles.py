@@ -193,12 +193,14 @@ def _rows(statement,page):
 def cash_basis(data):
     statement=extract(data,'de');rules=[];tables={}
     with pymupdf.open(stream=data,filetype='pdf') as doc:
-        if len(doc)!=10 or any(p.rect.width<800 or p.rotation for p in doc):raise ValueError('Unsupported cash-basis BWA page layout.')
+        # Six calculation pages are followed by a variable number of ledger
+        # snapshots. Ledger pagination depends on the accounts in the period.
+        if len(doc)<6 or any(p.rect.width<800 or p.rotation for p in list(doc)[:6]):raise ValueError('Unsupported cash-basis BWA page layout.')
         for i,heading in enumerate(('Kurzfristige Erfolgsrechnung','Kurzfristige Erfolgsrechnung','Vorjahresvergleich','Vorjahresvergleich','3-Jahresvergleich','3-Jahresvergleich')):
             if heading not in doc[i].get_text():raise ValueError('Cash-basis report pages are missing or reordered.')
     anchors={1:[281.7,334.7,387.5,440.6,589.4,642.4,695.2,748.0],2:[281.7,334.7,387.5,440.6,589.4,642.4,695.2,748.0],
              3:[271.4,357.1,442.5,493.4,579.1,664.7,750.2,801.1],4:[271.4,357.1,442.5,493.4,579.1,664.7,750.2,801.1],
-             5:[264.2,342.9,421.4,499.9,547.9,626.6,674.6,753.1],6:[264.2,342.9,421.4,499.9,547.9,626.6,674.6,753.1]}
+             5:[264.2,342.9,421.4,499.9,547.9,626.6,674.6,753.1,801.1],6:[264.2,342.9,421.4,499.9,547.9,626.6,674.6,753.1,801.1]}
     for c in statement['cells']:c['editable']=False
     for page in range(1,7):
         table={}
@@ -207,7 +209,7 @@ def cash_basis(data):
             if key in table:raise ValueError('Ambiguous duplicate cash-basis row.')
             row={}
             for c in group:
-                column=min(range(8),key=lambda j:abs(c['box'][2]-anchors[page][j]))
+                column=min(range(len(anchors[page])),key=lambda j:abs(c['box'][2]-anchors[page][j]))
                 if abs(c['box'][2]-anchors[page][column])>1 or column in row:raise ValueError('Cash-basis amount is not aligned with its expected column.')
                 row[column]=c;c['row']=key;c['column_index']=column
                 c['context']=c['label']+' / '+('Month' if column==0 else 'Year to date' if (page<=2 and column==4) or (page>=5 and column==3) or (page in (3,4) and column==4) else 'Comparison / percentage')
@@ -250,7 +252,7 @@ def cash_basis(data):
                     rules.append(sum_rule(cells[difference],[(cells[current],1),(cells[previous],-1)],'Current minus previous year'))
                     if percent in cells:rules.append(ratio_rule(cells[percent],cells[difference],cells[previous],True))
             elif page==5:
-                for amount_col,percent_col,revenue_col in ((3,4,3),(5,6,5)):
+                for amount_col,percent_col,revenue_col in ((3,4,3),(5,6,5),(7,8,7)):
                     if percent_col in cells:rules.append(ratio_rule(cells[percent_col],cells[amount_col],row(tables[5],'= Summe der Erlöse')[revenue_col]))
     targets={r['target'] for r in rules};pairs=[]
     for table in (first,liquidity):

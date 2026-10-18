@@ -84,6 +84,38 @@ class CashBasisTests(unittest.TestCase):
         self.assertTrue(previews(self.data,output,result['changes'])['after'])
 
 
+class JulyCashBasisTests(CashBasisTests):
+    @classmethod
+    def setUpClass(cls):
+        cls.data=(ROOT/'10-10-docs/10257_BWA_2026-07_261009_205545.pdf').read_bytes()
+        cls.source=validate_analysis(cls.data,analyze(cls.data))
+
+    def test_full_structure_and_deterministic_intake(self):
+        self.assertTrue(self.source['verified'],self.source['discrepancies'])
+        self.assertEqual(self.source['pages'],8)
+        self.assertEqual(len(self.source['profile_rules']),454)
+        self.assertTrue(any(c.get('column_index')==8 for c in self.source['cells'] if c['page']==5))
+        with patch('urllib.request.urlopen') as network:
+            self.assertEqual(inspect_document(self.source)['model'],'verified-format-rules')
+            network.assert_not_called()
+
+    # Fixture-specific amounts are asserted only for the December report.
+    def test_income_updates_year_comparisons_percentages_and_liquidity(self):
+        result=calculate_profile(self.source,[{'id':'c1','value':'12.837,82'}])
+        self.assertEqual({c['page'] for c in result['changes']},set(range(1,7)))
+
+    def test_explicit_annual_input_and_multiple_inputs(self):
+        monthly=next(c for c in self.source['cells'] if c['page']==1 and c.get('column_index')==0 and c.get('editable'))
+        annual=next(c for c in self.source['cells'] if c['page']==1 and c.get('row')==monthly['row'] and c.get('column_index')==4)
+        result=calculate_profile(self.source,[{'id':monthly['id'],'value':'12.837,82'},{'id':annual['id'],'value':'100.000,00'}])
+        self.assertEqual(next(c['new'] for c in result['changes'] if c['id']==annual['id']),'100.000,00')
+
+    def test_reject_derived_inputs_rules_and_undefined_percentages(self):
+        derived=next(c for c in self.source['cells'] if c['page']==1 and not c.get('editable'))
+        with self.assertRaisesRegex(ValueError,'independent'):
+            calculate_profile(self.source,[{'id':derived['id'],'value':'100,00'}])
+
+
 class SuSaSampleTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

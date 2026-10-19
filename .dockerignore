@@ -1,0 +1,11 @@
+.env
+.env.*
+.git
+.tools/
+.vercel
+output/
+api/
+__pycache__/
+test_*.py
+test_*.js
+verify_*.py

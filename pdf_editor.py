@@ -1,16 +1,28 @@
 """Local PDF value editor. Run: python pdf_editor.py"""
 import base64
 import argparse
+import hashlib
+import hmac
 import html
 import json
+import os
 import re
+import secrets
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import parse_qs
 
 import pymupdf
 from openrouter_dependencies import load_environment
 
 load_environment()
+
+# Optional login for hosted copies; disabled when APP_PASSWORD is empty.
+APP_PASSWORD = os.environ.get('APP_PASSWORD', '')
+SESSION = hmac.new((os.environ.get('SIGNING_SECRET') or secrets.token_hex(32)).encode(), b'login:' + APP_PASSWORD.encode(), hashlib.sha256).hexdigest()
+LOGIN_PAGE = '''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Sign in</title>
+<style>body{font-family:system-ui,sans-serif;background:#f4f5f7;display:grid;place-items:center;min-height:100vh;margin:0}form{background:#fff;padding:2rem;border-radius:8px;box-shadow:0 2px 12px #0002;width:min(320px,90vw)}input,button{width:100%;box-sizing:border-box;padding:.6rem;margin-top:.6rem;font-size:1rem}button{cursor:pointer}p{color:#b00020}</style></head>
+<body><form method="post" action="/login"><h1>PDF value editor</h1><label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" autofocus required>{error}<button type="submit">Sign in</button></form></body></html>'''
 
 MAX_REQUEST = 30 * 1024 * 1024
 TOKEN = re.compile(rb'\((?:\\.|[^\\)])*\)|/[^\s/\[\]()<>]+|-?\d*\.?\d+|[A-Za-z*\x27\"]+|\S')
@@ -186,7 +198,39 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def signed_in(self):
+        if not APP_PASSWORD:
+            return True
+        for part in self.headers.get('Cookie', '').split(';'):
+            name, _, value = part.strip().partition('=')
+            if name == 'session' and hmac.compare_digest(value, SESSION):
+                return True
+        return False
+
+    def login_page(self, status=200, error=''):
+        return self.reply(status, LOGIN_PAGE.replace('{error}', error).encode(), 'text/html; charset=utf-8')
+
+    def login(self, length):
+        password = parse_qs(self.rfile.read(length).decode('utf-8', 'replace')).get('password', [''])[0]
+        if not hmac.compare_digest(password.encode(), APP_PASSWORD.encode()):
+            return self.login_page(401, '<p>Incorrect password.</p>')
+        # SameSite=None lets the login survive inside the Hugging Face Spaces iframe (HTTPS only).
+        secure = '; Secure; SameSite=None' if self.headers.get('X-Forwarded-Proto') == 'https' else '; SameSite=Lax'
+        self.send_response(303)
+        self.send_header('Set-Cookie', f'session={SESSION}; Path=/; HttpOnly; Max-Age=2592000{secure}')
+        self.send_header('Location', '/finance')
+        self.end_headers()
+
     def do_GET(self):
+        if self.path == '/login':
+            return self.login_page()
+        if not self.signed_in():
+            if self.path.startswith('/api/'):
+                return self.reply(401, {'error': 'Sign in again.'})
+            self.send_response(302)
+            self.send_header('Location', '/login')
+            self.end_headers()
+            return
         if self.path == '/api/finance/linked-demo':
             from linked_finance import demo
             return self.reply(200, demo())
@@ -232,6 +276,10 @@ class Handler(BaseHTTPRequestHandler):
             length = int(self.headers.get('Content-Length', '0'))
             if not 0 < length <= MAX_REQUEST:
                 return self.reply(413, {'error': 'Upload a PDF smaller than 20 MB.'})
+            if self.path == '/login' and APP_PASSWORD:
+                return self.login(length)
+            if not self.signed_in():
+                return self.reply(401, {'error': 'Sign in again.'})
             if self.path == '/api/finance/prepare' and self.headers.get('Content-Type','').split(';')[0] == 'application/octet-stream':
                 from upload import prepare
                 from upload_cache import store

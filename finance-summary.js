@@ -1,19 +1,22 @@
 /* Upload-time AI explanations; source-backed monetary facts stay independent. */
 (()=>{
 const language=document.createElement('select'),languageLabel=document.createElement('label');language.id='analysisLanguage';languageLabel.htmlFor=language.id;languageLabel.textContent='Analysis language / Analysesprache';language.append(new Option('English','en'),new Option('German','de'));language.value='en';
-try{language.value=localStorage.getItem('financeAnalysisLanguage')==='de'?'de':'en'}catch{}
+// The app-wide language switch (i18n.js) drives the analysis language.
+language.value=window.appLanguage?.()==='de'?'de':'en';languageLabel.hidden=true;language.hidden=true;
 document.querySelector('main > h1').after(languageLabel,language);
 language.style.cssText='max-width:260px;margin-bottom:16px';
 const panel=document.createElement('div'),title=document.createElement('h2'),progress=document.createElement('p'),body=document.createElement('div'),retry=document.createElement('button');
 panel.id='documentOverview';progress.className='hint';progress.setAttribute('role','status');retry.type='button';retry.hidden=true;panel.append(title,progress,body,retry);$('originalWrap').before(panel);panel.hidden=true;
 let generation=0,source=null,pending=false,inputRows=null;const cache=new Map();
-const words={en:{heading:'Document overview',loading:'OpenRouter is analyzing the extracted document...',ready:'AI explanation from OpenRouter GPT-4.1. Amounts below are source-backed.',retry:'Retry AI summary',period:'Period',month:'Month',ytd:'Year to date',annual:'Full year',income:'Income',sales:'Sales revenue',receipts:'Operating receipts',expenses:'Expenses',net_costs:'Net operating costs',operating_costs:'Operating costs',result:'Result',costs:'Expense breakdown',metric:'Item',amount:'Amount',computed:'Calculated from source fields',printed:'Printed in PDF',verification:'Source verification',verified:'Verified',unverified:'Not verified',source:'Source fields',info:'Upload extracts your PDF locally, then OpenRouter explains the extracted information in the selected language. Recognized formats use verified local calculations. Only extracted data is sent, not the PDF file. AI requests use OpenRouter credits.',susa:'SuSa income, expenses and result are calculated from account movements, not printed BWA profit figures.'},
-de:{heading:'Dokumentübersicht',loading:'OpenRouter analysiert die ausgelesenen Dokumentdaten...',ready:'KI-Erläuterung von OpenRouter GPT-4.1. Die folgenden Beträge stammen aus den Quelldaten.',retry:'KI-Zusammenfassung erneut laden',period:'Zeitraum',month:'Monat',ytd:'Jahr bis zum Berichtsmonat',annual:'Gesamtjahr',income:'Erträge',sales:'Umsatzerlöse',receipts:'Betriebseinnahmen',expenses:'Aufwendungen',net_costs:'Nettobetriebskosten',operating_costs:'Betriebskosten',result:'Ergebnis',costs:'Kostenübersicht',metric:'Position',amount:'Betrag',computed:'Aus Quelldaten berechnet',printed:'Im PDF ausgewiesen',verification:'Quellenprüfung',verified:'Geprüft',unverified:'Nicht geprüft',source:'Quellfelder',info:'Beim Hochladen wird Ihr PDF lokal ausgelesen. Anschließend erläutert OpenRouter die Daten in der gewählten Sprache. Erkannte Formate werden mit geprüften lokalen Regeln berechnet. Nur ausgelesene Daten werden gesendet, nicht die PDF-Datei. KI-Anfragen verbrauchen OpenRouter-Guthaben.',susa:'SuSa-Erträge, Aufwendungen und Ergebnis werden aus Kontobewegungen berechnet; es handelt sich nicht um ausgewiesene BWA-Ergebnisse.'}};
+const words={en:{heading:'Document overview',loading:'OpenRouter is analyzing the extracted document...',ready:'AI explanation from OpenRouter GPT-4.1. Amounts below are source-backed.',retry:'Retry AI summary',period:'Period',month:'Month',ytd:'Year to date',annual:'Full year',income:'Income',sales:'Sales revenue',receipts:'Operating receipts',expenses:'Expenses',net_costs:'Net operating costs',operating_costs:'Operating costs',goods:'Goods and materials',result:'Result',costs:'Expense breakdown',metric:'Item',amount:'Amount',computed:'Calculated from source fields',printed:'Printed in PDF',verification:'Source verification',verified:'Verified',unverified:'Not verified',source:'Source fields',info:'Upload extracts your PDF locally, then OpenRouter explains the extracted information in the selected language. Recognized formats use verified local calculations. Only extracted data is sent, not the PDF file. AI requests use OpenRouter credits.',susa:'SuSa income, expenses and result are calculated from account movements, not printed BWA profit figures.'},
+de:{heading:'Dokumentübersicht',loading:'OpenRouter analysiert die ausgelesenen Dokumentdaten...',ready:'KI-Erläuterung von OpenRouter GPT-4.1. Die folgenden Beträge stammen aus den Quelldaten.',retry:'KI-Zusammenfassung erneut laden',period:'Zeitraum',month:'Monat',ytd:'Jahr bis zum Berichtsmonat',annual:'Gesamtjahr',income:'Erträge',sales:'Umsatzerlöse',receipts:'Betriebseinnahmen',expenses:'Aufwendungen',net_costs:'Nettobetriebskosten',operating_costs:'Betriebskosten',goods:'Waren und Material',result:'Ergebnis',costs:'Kostenübersicht',metric:'Position',amount:'Betrag',computed:'Aus Quelldaten berechnet',printed:'Im PDF ausgewiesen',verification:'Quellenprüfung',verified:'Geprüft',unverified:'Nicht geprüft',source:'Quellfelder',info:'Beim Hochladen wird Ihr PDF lokal ausgelesen. Anschließend erläutert OpenRouter die Daten in der gewählten Sprache. Erkannte Formate werden mit geprüften lokalen Regeln berechnet. Nur ausgelesene Daten werden gesendet, nicht die PDF-Datei. KI-Anfragen verbrauchen OpenRouter-Guthaben.',susa:'SuSa-Erträge, Aufwendungen und Ergebnis werden aus Kontobewegungen berechnet; es handelt sich nicht um ausgewiesene BWA-Ergebnisse.'}};
 function t(){return words[language.value]||words.en}
+// Period names come from the AI reading of the document headers (e.g. "Juli 2025"); kinds are fallbacks.
+function periodName(result,period){const named=result.summary.periods?.find(v=>v.id===period.id);return named?.label||t()[period.kind]+(period.kind==='month'&&!['Month','Monat'].includes(period.period)?' · '+period.period:'')}
 function summaryInputs(result){
  const rows=new Map(),translations=new Map(result.summary.cost_labels.map(v=>[v.key,v.label])),w=t();
  for(const period of result.facts.periods){
-  const name=w[period.kind]+(period.kind==='month'&&!['Month','Monat'].includes(period.period)?' · '+period.period:'');
+  const name=periodName(result,period);
   for(const record of [...period.metrics,...period.costs]){
    if(!record.ids?.length||record.ids.length>2)continue;
    const label=translations.get(record.key)||w[record.key]||record.label||record.key;
@@ -60,7 +63,7 @@ async function choose(id){
 }
 function render(result){
  summaryInputs(result);
- const w=t();title.textContent=result.summary.title;progress.textContent=w.ready;body.replaceChildren();
+ const w=t();title.textContent=result.summary.title;progress.textContent=w.ready.replace('GPT-4.1',result.model||'AI');body.replaceChildren();
  const overview=document.createElement('p');overview.textContent=result.summary.overview;body.append(overview);
  for(const text of [...result.summary.highlights,...result.summary.cautions]){const p=document.createElement('p');p.textContent=text;body.append(p)}
  const verification=document.createElement('p');verification.className='hint';verification.textContent=`${w.verification}: ${result.facts.source_verified?w.verified:w.unverified} · ${result.facts.pages} ${language.value==='de'?'Seiten':'pages'} · ${result.facts.fields} ${language.value==='de'?'Felder':'fields'}`;body.append(verification);
@@ -69,8 +72,8 @@ function render(result){
  const labels=new Map(result.summary.cost_labels.map(v=>[v.key,v.label]));
  for(const period of result.facts.periods){
   const details=document.createElement('details'),caption=document.createElement('summary'),metrics=document.createElement('div'),costs=document.createElement('div');
-  details.open=period.kind!=='month';caption.textContent=w[period.kind]+(period.kind==='month'&&!['Month','Monat'].includes(period.period)?' · '+period.period:'');details.append(caption,metrics);
-  linkedTable(metrics,[w.metric,w.amount,language.value==='de'?'Quelle':'Source'],period.metrics.map(v=>[w[v.key]||v.key,v.amount,(v.computed?w.computed:w.printed)+(v.pages?.length?' · '+(language.value==='de'?'Seite ':'Page ')+v.pages.join(', '):'')]),period.metrics);
+  details.open=period.kind!=='month';caption.textContent=periodName(result,period);details.append(caption,metrics);
+  linkedTable(metrics,[w.metric,w.amount,language.value==='de'?'Quelle':'Source'],period.metrics.map(v=>[labels.get(v.key)||w[v.key]||v.label||v.key,v.amount,(v.computed?w.computed:w.printed)+(v.pages?.length?' · '+(language.value==='de'?'Seite ':'Page ')+v.pages.join(', '):'')]),period.metrics);
   if(period.costs.length){const heading=document.createElement('h3');heading.textContent=w.costs;details.append(heading,costs);linkedTable(costs,[w.metric,w.amount],period.costs.map(v=>[labels.get(v.key)||v.label,v.amount]),period.costs,true)}
   body.append(details);
  }
@@ -95,8 +98,10 @@ const summaryApi=api;api=async function(path,data){const result=await summaryApi
 const summaryReset=reset;reset=function(){++generation;source=null;pending=false;inputRows=null;language.disabled=false;cache.clear();panel.hidden=true;body.replaceChildren();summaryReset()};
 const summaryControls=controls;controls=function(){summaryControls();analysisGate()};
 const analyzedSelect=selectInput;selectInput=async function(){if(!inputRows?.size)return;return analyzedSelect()};$('input').onchange=selectInput;
-language.onchange=()=>{try{localStorage.setItem('financeAnalysisLanguage',language.value)}catch{}labels();if(source)load(source)};
+language.onchange=()=>{labels();if(source)load(source)};
+window.addEventListener('app-language-change',e=>{if(language.value!==e.detail){language.value=e.detail;language.onchange()}});
 retry.onclick=()=>{if(!pending&&source)load(source)};
+window.addEventListener('finance-model-change',()=>{cache.clear();inputRows=null;if(source)load(source)});
 labels();
 controls();
 })();

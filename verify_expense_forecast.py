@@ -13,6 +13,7 @@ URL='http://127.0.0.1:8000'
 
 
 def post(path,payload,binary=False):
+    if not binary and len(sys.argv)>2:payload={**payload,'ai_model':sys.argv[2]}
     body=payload if binary else json.dumps(payload).encode()
     req=urllib.request.Request(URL+path,data=body,headers={'Content-Type':'application/octet-stream' if binary else 'application/json'})
     try:
@@ -41,7 +42,7 @@ signed=complete(post('/api/finance/workflow-analyze-start',{'upload_token':token
 batch={'upload_token':token,'analysis':signed,'edits':[{'id':'c1','value':'12.837,82'}]}
 print('Local extraction complete; requesting OpenRouter cost assumptions.',flush=True)
 preview=complete(post('/api/finance/forecast-start',batch))
-assert preview['model']=='openai/gpt-4.1'
+assert preview['model']==(sys.argv[2] if len(sys.argv)>2 else 'openai/gpt-4.1')
 assert preview['limits']
 for v in preview['limits']:
     if v['category']=='fixed':assert v['after']==v['before']

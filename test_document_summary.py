@@ -26,7 +26,8 @@ class DocumentSummaryTests(unittest.TestCase):
         self.assertIn(self.language,payload['messages'][0]['content'])
         summary={'title':'Document summary','overview':'Cash-basis income and expenses, separated by reporting period.',
             'highlights':['Source totals were checked.'],'cautions':['Year to date is not automatically a full year.'],
-            'cost_labels':[{'key':key,'label':'Translated '+label} for key,label in state['cost_labels_to_translate'].items()]}
+            'cost_labels':[{'key':key,'label':'Translated '+label} for key,label in state['cost_labels_to_translate'].items()],
+            'periods':[{'id':p['id'],'label':'Period '+p['id'],'kind':'year_to_date' if p['kind']=='ytd' else 'month'} for p in state['facts']['periods']]}
         return io.BytesIO(json.dumps({'choices':[{'finish_reason':'stop','message':{'content':json.dumps(summary)}}]}).encode())
 
     def test_cash_source_values_periods_and_expense_breakdown(self):
@@ -63,6 +64,28 @@ class DocumentSummaryTests(unittest.TestCase):
             return io.BytesIO(json.dumps(value).encode())
         with patch.dict(os.environ,{'OPEN_ROUTER_KEY':'test'}),patch('urllib.request.urlopen',side_effect=invalid),self.assertRaisesRegex(ValueError,'invented'):
             summarize(self.cash)
+
+    def test_ai_period_labels_are_returned_and_invented_periods_rejected(self):
+        self.language='German'
+        with patch.dict(os.environ,{'OPEN_ROUTER_KEY':'test'}),patch('urllib.request.urlopen',side_effect=self.response):
+            result=summarize(self.cash,'de')
+        self.assertEqual({p['id']:p['label'] for p in result['summary']['periods']},{'4':'Period 4','0':'Period 0'})
+        def invented(request,**kwargs):
+            value=json.loads(self.response(request).read());summary=json.loads(value['choices'][0]['message']['content'])
+            summary['periods'].append({'id':'99','label':'Q3 2031','kind':'quarter'});value['choices'][0]['message']['content']=json.dumps(summary)
+            return io.BytesIO(json.dumps(value).encode())
+        with patch.dict(os.environ,{'OPEN_ROUTER_KEY':'test'}),patch('urllib.request.urlopen',side_effect=invented),self.assertRaisesRegex(ValueError,'Periods'):
+            summarize(self.cash,'de')
+
+    def test_buhl_overview_lists_editable_accounts_per_period(self):
+        data=(ROOT/'57 BWA Amaron Management 7-2025_261008_193942.pdf').read_bytes()
+        result=facts(validate_analysis(data,analyze(data)))
+        self.assertEqual([(p['id'],p['kind']) for p in result['periods']],[('0','month'),('3','ytd')])
+        month=result['periods'][0];metrics={v['key']:v for v in month['metrics']}
+        self.assertEqual(metrics['income']['amount'],'115.958,09')
+        self.assertEqual(metrics['result']['amount'],'14.839,62')
+        self.assertEqual(metrics['revenue_8125steuerfrinnergemlief4abs1bustg']['amount'],'26.825,00')
+        self.assertEqual(len(month['costs']),26)
 
     def test_susa_movements_exclude_opening_and_bank_balances(self):
         source={'profile':'addison_susa','report_type':'SuSa','pages':1,'locale':'de','verified':True,'cells':[]}

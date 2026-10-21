@@ -104,10 +104,30 @@ class BoundedForecastTests(unittest.TestCase):
             elif before>0:self.assertLessEqual(after,before*(1+Decimal(v['increase'])/100)+Decimal('.01'))
         self.assertNotIn('Raumkosten / Month',{c['context'] for c in result['changes']})
 
-    def test_explicit_fixed_expense_cannot_absorb_a_profit_target(self):
+    def test_income_change_alone_does_not_invent_expense_changes(self):
+        result=self.run_preview(self.cash_data,self.cash,[{'id':'c1','value':'1.000.000,00'}])
+        self.assertTrue(result['limits'])
+        for item in result['limits']:
+            self.assertEqual(item['before'],item['after'])
+            self.assertIn('Unchanged',item['adjustment_basis'])
+        self.assertFalse(result['forecast']['proposal']['assume_volume'])
+
+    def test_volume_scenario_only_proposes_variable_costs_and_reports_caps(self):
+        with patch.dict(os.environ,{'OPEN_ROUTER_KEY':'test'}),patch('urllib.request.urlopen',side_effect=response):
+            result=preview(self.cash_data,self.cash,[{'id':'c3','value':'1.000.000,00'}],assume_volume=True)
+        changed=[v for v in result['limits'] if v['before']!=v['after']]
+        self.assertTrue(changed)
+        self.assertTrue(all(v['category']=='variable' for v in changed))
+        self.assertTrue(any(v['capped'] for v in changed))
+        for v in result['limits']:
+            if v['category'] in ('fixed','staff','limited','unknown'):self.assertEqual(v['before'],v['after'])
+        self.assertTrue(result['forecast']['proposal']['assume_volume'])
+
+    def test_explicit_expense_correction_is_not_blocked_by_planning_caps(self):
         c=next(c for c in self.cash['cells'] if c.get('row')=='raumkosten' and c.get('column_index')==0 and c['editable'])
-        with self.assertRaisesRegex(ValueError,'cannot absorb'):
-            self.run_preview(self.cash_data,self.cash,[{'id':c['id'],'value':'100.000,00'}])
+        result=self.run_preview(self.cash_data,self.cash,[{'id':c['id'],'value':'100.000,00'}])
+        self.assertEqual(next(v['new'] for v in result['changes'] if v['id']==c['id']),'100.000,00')
+        self.assertIn('explicit expense correction',next(v['adjustment_basis'] for v in result['limits'] if v['id']==c['id']))
 
     def test_annual_income_spreads_to_months_with_exact_cents(self):
         edits=_annual_edits(self.annual,[{'id':'revenue_12','value':'100.000,01'}])
@@ -158,9 +178,9 @@ class SuSaForecastTests(unittest.TestCase):
         cls.data=(ROOT/'AB Service GmbH, SuSa per 042026_260927_211659.pdf').read_bytes()
         cls.source=validate_analysis(cls.data,analyze(cls.data))
 
-    def test_telephone_increase_outside_limit_is_rejected(self):
+    def test_explicit_telephone_correction_still_requires_balanced_bookings(self):
         phone=next(c for c in self.source['cells'] if c['row']=='6805' and c['column_index']==3)
-        with patch.dict(os.environ,{'OPEN_ROUTER_KEY':'test'}),patch('urllib.request.urlopen',side_effect=response),self.assertRaisesRegex(ValueError,'cannot absorb'):
+        with patch.dict(os.environ,{'OPEN_ROUTER_KEY':'test'}),patch('urllib.request.urlopen',side_effect=response),self.assertRaisesRegex(ValueError,'counterpart'):
             preview(self.data,self.source,[{'id':phone['id'],'value':'1.000.000,00'}])
 
     def test_ai_does_not_invent_susa_counterpart_bookings(self):

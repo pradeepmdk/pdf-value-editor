@@ -19,6 +19,7 @@ const result=lang=>({language:lang,summary:{title:lang==='de'?'Dokumentübersich
 const context={document:{createElement:()=>{const e=new Element();created.push(e);return e},querySelector:()=>get('mainTitle'),getElementById:get},Option:function(text,value){this.textContent=text;this.value=value},$:get,localStorage:{getItem:()=>null,setItem:()=>{}},pdf:'pdf',busy:false,cell:id=>id==='c1'?{id,editable:true,text:'1.000,00'}:null,statement:()=>({}),controls:()=>{},selectInput:async()=>{calls.push({path:'select-input',id:get('input').value})},table:()=>{},reset:()=>{},setTimeout:fn=>{fn();return 0},
  api:async(path,data)=>{calls.push({path,data});if(path.endsWith('-analyze'))return {analysis:{statement:{}}};if(path.endsWith('-start'))return {job:data.language};if(path.endsWith('/analysis-job')){if(fail)throw Error('Service unavailable');return {state:'complete',result:result(data.job)}}throw Error(path)}};
 context.controls=()=>{get('input').disabled=false;get('value').disabled=false;get('affected').disabled=false};
+const events={};context.window={addEventListener:(name,handler)=>{events[name]=handler}};
 vm.createContext(context);vm.runInContext(fs.readFileSync('finance-summary.js','utf8'),context);
 const flush=()=>new Promise(resolve=>setImmediate(resolve));
 (async()=>{

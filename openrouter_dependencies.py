@@ -7,6 +7,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from general_finance import calculate, parse_amount
+from ai_models import selected_model, model_payload
 
 MODEL = 'openai/gpt-4.1'
 ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions'
@@ -52,7 +53,7 @@ def inspect_document(extracted):
                'messages': [{'role': 'system', 'content': prompt}, {'role': 'user', 'content': json.dumps(state, ensure_ascii=False)}],
                'response_format': {'type': 'json_schema', 'json_schema': {'name': 'document_structure', 'strict': True, 'schema': schema}},
                'provider': {'require_parameters': True}}
-    body = json.dumps(payload).encode()
+    body = json.dumps(model_payload(payload)).encode()
     if len(body) > 350000:
         raise ValueError('Report exceeds the AI context budget. No amounts were truncated or sent.')
     request = urllib.request.Request(ENDPOINT, data=body, headers={'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json'})
@@ -79,7 +80,7 @@ def inspect_document(extracted):
         raise ValueError('GPT document analysis could not reach OpenRouter or timed out. Please retry the upload.') from None
     except (ValueError, KeyError, TypeError) as exc:
         raise ValueError('GPT document analysis failed validation: ' + str(exc)) from None
-    return {**result, 'model': MODEL}
+    return {**result, 'model': selected_model()}
 
 
 def decide(extracted, edits):
@@ -137,7 +138,7 @@ For SuSa: do not add Monatsumsatz and Jahresumsatz together; year-to-date normal
     # A rejected answer is sent back once with the exact validation error so GPT can correct it.
     # Python still verifies every returned formula; nothing invalid is accepted on retry.
     for attempt in range(2):
-        body = json.dumps(payload).encode()
+        body = json.dumps(model_payload(payload)).encode()
         if len(body) > 350000:
             raise ValueError('Report exceeds the AI context budget. No amounts were truncated or sent.')
         request = urllib.request.Request(ENDPOINT, data=body, headers={'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json'})
@@ -178,6 +179,6 @@ For SuSa: do not add Monatsumsatz and Jahresumsatz together; year-to-date normal
             payload['messages'] = payload['messages'][:2] + [
                 {'role': 'assistant', 'content': content},
                 {'role': 'user', 'content': 'Your answer was rejected by validation: ' + str(exc) + ' Return the complete corrected answer. Each rule needs one unique target that is never its own source, and each source may appear only once per rule. If a relationship cannot be expressed that way, list its target as unresolved instead of guessing.'}]
-    return {'model': MODEL, 'suggestions': rules, 'changes': result['changes'], 'decisions': [],
+    return {'model': selected_model(), 'suggestions': rules, 'changes': result['changes'], 'decisions': [],
             'unresolved': [{'id': k, 'reason': 'GPT could not establish a supported formula'} for k in unresolved],
             'advisory_only': True, 'note': summary[:3000] + ' Amounts were calculated by Python Decimal; inspect the affected values before export.'}

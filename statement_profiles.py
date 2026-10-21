@@ -77,6 +77,12 @@ def calculate_profile(statement,edits):
     for monthly,annual in statement.get('period_pairs',[]):
         if monthly in affected and annual not in explicit:
             values[annual]+=values[monthly]-original[monthly];affected.add(annual)
+        elif (statement.get('profile')=='datev_cash_basis'
+                and annual in affected and monthly not in explicit):
+            # Treat the user's YTD correction as an adjustment to the displayed
+            # current month. Preserve the earlier-month cumulative amount.
+            values[monthly]=original[monthly]+values[annual]-original[annual]
+            if values[monthly]!=original[monthly]:affected.add(monthly)
     for rule in _order(statement['profile_rules']):
         if any(t['source'] in affected for t in rule['terms']):
             value=evaluate(rule,values)
@@ -89,10 +95,14 @@ def calculate_profile(statement,edits):
     for key,c in cells.items():
         if values[key]==original[key]:continue
         if c['suffix'] and values[key]<0:raise ValueError('Calculated balance crosses the original S/H direction. Review the account movements; no PDF was created.')
+        allocation=any(key==m and a in explicit and m not in explicit for m,a in statement.get('period_pairs',[])) and statement.get('profile')=='datev_cash_basis'
         changes.append({**c,'new':format_amount(values[key],statement['locale'],c['suffix']),
-                        'reason':'Input edit' if key in explicit else 'Verified statement formula'})
+                        'reason':'Input edit' if key in explicit else 'YTD correction assigned to current month; earlier months unchanged' if allocation else 'Verified statement formula'})
     if not changes:raise ValueError('No amounts changed.')
-    return {'changes':changes,'rules_checked':len(statement['profile_rules']), 'note':statement['profile_note']}
+    note=statement['profile_note']
+    if any(c['reason'].startswith('YTD correction') for c in changes):
+        note+=' Year-to-date corrections are assigned to the displayed current month, keeping earlier months unchanged. Explicit monthly entries take precedence. Historical comparison years are unchanged.'
+    return {'changes':changes,'rules_checked':len(statement['profile_rules']), 'note':note}
 
 
 def recognize(data,locale='de',rotation=0):
@@ -101,6 +111,8 @@ def recognize(data,locale='de',rotation=0):
         text=''.join(p.get_text() for p in doc)
     if 'BWA-Form: Einnahmen-Ausgaben-BWA' in text:
         return cash_basis(data)
+    if 'Buhl Data Service' in text and 'BWA' in text and '% Aufwand' in text:
+        return buhl_bwa(data)
     return None
 
 
@@ -261,5 +273,92 @@ def cash_basis(data):
             if cells[0]['editable'] and cells[4]['editable']:pairs.append([cells[0]['id'],cells[4]['id']])
     statement.update(profile='datev_cash_basis',report_type='BWA',export_mode='native',profile_rules=rules,period_pairs=pairs,
         profile_note='Cash-basis BWA totals, percentages, liquidity and comparison pages recalculated with Decimal. Monthly input changes also update year-to-date by the same delta. VAT and other taxes remain independent inputs. The attached SuSa ledger pages are source snapshots and remain unchanged; this is a report scenario, not a bookkeeping correction.')
+    statement['notes'].append(statement['profile_note'])
+    return validate(statement)
+
+
+BUHL_COLUMNS=[309,351,394,465,507,550]
+
+
+def _buhl_label(label):
+    # Rotated margin text (print date, software name) is merged into some labels.
+    summe=re.search(r'Summe\s.*',label)
+    if summe:return 'summe',summe.group(0)
+    account=re.search(r'(?:^|\s)(\d{4})\s+(?=\D)(.*)',label)
+    if account:return 'account',account.group(1)+' '+account.group(2)
+    return 'group',re.sub(r'^(?:\S*[\d)]\S*\s+)+','',label).strip()
+
+
+def buhl_bwa(data):
+    """Buhl (WISO Unternehmer) BWA: monthly and annual balance, % revenue and % expense."""
+    statement=extract(data,'de');rules=[];main=[];summary={}
+    for c in statement['cells']:c['editable']=False
+    for page in range(1,statement['pages']+1):
+        for group in _rows(statement,page):
+            row={}
+            for c in group:
+                column=min(range(6),key=lambda j:abs(c['box'][2]-BUHL_COLUMNS[j]))
+                if abs(c['box'][2]-BUHL_COLUMNS[column])>3 or column in row:raise ValueError('Buhl BWA amount is not aligned with its expected column.')
+                row[column]=c;c['column_index']=column
+            key=normalized(group[0]['label'])
+            name=next((n for n in ('erlose','wareneinkauf','rohertrag','aufwand','gewinnverlust') if key.startswith(n)),None)
+            if summary or (name=='erlose' and main):
+                if name is None or name in summary:raise ValueError('Unknown Buhl BWA summary row: '+group[0]['label'])
+                summary[name]=row;label=group[0]['label'].split(' satz')[0];kind='summary'
+            else:
+                if len(row)!=6:raise ValueError('Buhl BWA row is missing an amount: '+group[0]['label'])
+                kind,label=_buhl_label(group[0]['label'])
+                main.append({'kind':kind,'label':label,'key':normalized(label),'cells':row})
+            for column,c in row.items():
+                c['row']=normalized(label);c['label']=label;c['row_kind']=kind
+                c['column']=('Month','Month % revenue','Month % expense','Year','Year % revenue','Year % expense')[column]
+                c['context']=label+' / '+c['column']
+    if set(summary)!={'erlose','wareneinkauf','rohertrag','aufwand','gewinnverlust'}:raise ValueError('Buhl BWA summary page is incomplete.')
+
+    def total(target,sources,reason):
+        for col in (0,3):rules.append(sum_rule(target['cells'][col],[(s['cells'][col],1) for s in sources],reason))
+    pending=[];group=None;blocks=[];aggregates=[];named={}
+    for r in main:
+        if r['kind']=='account':
+            (group['children'] if group else pending).append(r)
+            for col in (0,3):r['cells'][col]['editable']=True
+        elif r['kind']=='group':
+            group={**r,'children':[]};r['children']=group['children'];pending.append(r)
+        else:
+            group=None
+            # A sum directly after other sums aggregates them (e.g. operating
+            # result); otherwise it totals the groups and accounts above it.
+            if pending:sources,pending=pending,[];blocks.append(r)
+            elif blocks:sources,blocks=blocks,[];aggregates.append(r)
+            elif aggregates:sources,aggregates=aggregates,[r]
+            else:raise ValueError('Buhl BWA sum has no source rows: '+r['label'])
+            total(r,sources,'Printed subtotal');named[r['key']]=r
+    for r in main:
+        if r['kind']=='group':
+            if not r['children']:raise ValueError('Buhl BWA group has no accounts: '+r['label'])
+            total(r,r['children'],'Account group total')
+    if pending or group:raise ValueError('Buhl BWA ends with rows outside a printed sum.')
+    def need(name):
+        if name not in named:raise ValueError('Missing Buhl BWA row: '+name)
+        return named[name]
+    def link(target,sources,reason):
+        for col in (0,3):rules.append(sum_rule(summary[target][col],[(s[col],1) for s in sources],reason))
+    revenue=[need('summegesamtleistung')['cells']]+[r['cells'] for k,r in named.items() if k.startswith('summeneutralerertr')]
+    expense=[need('summegesamtkosten')['cells']]+[r['cells'] for k,r in named.items() if k.startswith('summeneutraleraufw')]
+    link('erlose',revenue,'Revenue including neutral income')
+    link('wareneinkauf',[need('summewarenundmaterial')['cells']],'Goods and material')
+    link('rohertrag',[summary['erlose'],summary['wareneinkauf']],'Revenue minus goods and material')
+    link('aufwand',expense,'Expenses including neutral expenses')
+    link('gewinnverlust',[need('summeergebnis')['cells']],'Same period result')
+    for cells in [r['cells'] for r in main]+list(summary.values()):
+        for base in (0,3):
+            if base+1 in cells:
+                if cells is summary['wareneinkauf']:rules.append(ratio_rule(cells[base+1],cells[base],cells[base]))
+                elif cells is summary['rohertrag']:rules.append(ratio_rule(cells[base+1],cells[base],summary['wareneinkauf'][base],True))
+                else:rules.append(ratio_rule(cells[base+1],cells[base],summary['erlose'][base]))
+            if base+2 in cells:rules.append(ratio_rule(cells[base+2],cells[base],summary['aufwand'][base]))
+    pairs=[[r['cells'][0]['id'],r['cells'][3]['id']] for r in main if r['kind']=='account']
+    statement.update(profile='buhl_bwa',report_type='BWA',export_mode='cid',profile_rules=rules,period_pairs=pairs,
+        profile_note='Buhl BWA account groups, sums, operating result, result, summary page and all % revenue / % expense columns recalculated with Decimal. Monthly account changes also update the annual column by the same delta. Taxes and other costs remain independent inputs.')
     statement['notes'].append(statement['profile_note'])
     return validate(statement)

@@ -77,13 +77,22 @@ def apply(data, extracted, edits, rules, allow_raster=False):
             from scan_finance import apply_scan
             output = apply_scan(data, result['changes'])
         else:
-            from native_finance import apply_native
-            output = apply_native(data,result['changes'])
+            if extracted.get('export_mode') == 'cid':
+                from cid_finance import apply_cid
+                output = apply_cid(data,result['changes'])
+            else:
+                from native_finance import apply_native
+                output = apply_native(data,result['changes'])
             # Re-extract the saved statement and recheck every printed formula.
             from statement_profiles import recognize
             saved = recognize(output,extracted['locale'])
             if saved is None or not saved['verified']:
                 raise ValueError('Saved statement failed formula verification.')
+            if extracted.get('export_mode') == 'cid':
+                expected = {c['id']: c['text'] for c in extracted['cells']}
+                expected.update({c['id']: c['new'] for c in result['changes']})
+                if {c['id']: c['text'] for c in saved['cells']} != expected:
+                    raise ValueError('Saved statement amounts differ from the calculated changes.')
         return output,result
     if extracted.get('export_mode') != 'direct':
         if any(c['mode'] == 'ocr' for c in result['changes']):

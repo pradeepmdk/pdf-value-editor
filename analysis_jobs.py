@@ -3,6 +3,7 @@ from concurrent.futures import ThreadPoolExecutor
 import secrets
 import threading
 import time
+from contextvars import copy_context
 
 _pool = ThreadPoolExecutor(max_workers=2)
 _jobs = {}
@@ -21,7 +22,7 @@ def start(work):
             if completed is None:break
             del _jobs[completed]
         token=secrets.token_urlsafe(32)
-        _jobs[token]=(now,_pool.submit(work))
+        _jobs[token]=(now,_pool.submit(copy_context().run,work))
         return {'job':token,'state':'processing'}
 
 def poll(token):

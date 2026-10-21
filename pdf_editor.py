@@ -20,9 +20,9 @@ load_environment()
 # Optional login for hosted copies; disabled when APP_PASSWORD is empty.
 APP_PASSWORD = os.environ.get('APP_PASSWORD', '')
 SESSION = hmac.new((os.environ.get('SIGNING_SECRET') or secrets.token_hex(32)).encode(), b'login:' + APP_PASSWORD.encode(), hashlib.sha256).hexdigest()
-LOGIN_PAGE = '''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Sign in</title>
+LOGIN_PAGE = '''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Anmelden / Sign in</title>
 <style>body{font-family:system-ui,sans-serif;background:#f4f5f7;display:grid;place-items:center;min-height:100vh;margin:0}form{background:#fff;padding:2rem;border-radius:8px;box-shadow:0 2px 12px #0002;width:min(320px,90vw)}input,button{width:100%;box-sizing:border-box;padding:.6rem;margin-top:.6rem;font-size:1rem}button{cursor:pointer}p{color:#b00020}</style></head>
-<body><form method="post" action="/login"><h1>PDF value editor</h1><label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" autofocus required>{error}<button type="submit">Sign in</button></form></body></html>'''
+<body><form method="post" action="/login"><h1>PDF value editor</h1><label for="password">Passwort / Password</label><input id="password" name="password" type="password" autocomplete="current-password" autofocus required>{error}<button type="submit">Anmelden / Sign in</button></form></body></html>'''
 
 MAX_REQUEST = 30 * 1024 * 1024
 TOKEN = re.compile(rb'\((?:\\.|[^\\)])*\)|/[^\s/\[\]()<>]+|-?\d*\.?\d+|[A-Za-z*\x27\"]+|\S')
@@ -213,7 +213,7 @@ class Handler(BaseHTTPRequestHandler):
     def login(self, length):
         password = parse_qs(self.rfile.read(length).decode('utf-8', 'replace')).get('password', [''])[0]
         if not hmac.compare_digest(password.encode(), APP_PASSWORD.encode()):
-            return self.login_page(401, '<p>Incorrect password.</p>')
+            return self.login_page(401, '<p>Falsches Passwort / Incorrect password.</p>')
         # SameSite=None lets the login survive inside the Hugging Face Spaces iframe (HTTPS only).
         secure = '; Secure; SameSite=None' if self.headers.get('X-Forwarded-Proto') == 'https' else '; SameSite=Lax'
         self.send_response(303)
@@ -238,6 +238,9 @@ class Handler(BaseHTTPRequestHandler):
             from openrouter_dependencies import status
             configuration=status()
             return self.reply(200,{'enabled':configuration['enabled'],'model':configuration['model'],'advisory_only':True})
+        if self.path == '/api/finance/models':
+            from ai_models import MODELS, DEFAULT_MODEL
+            return self.reply(200,{'default':DEFAULT_MODEL,'models':[{'id':key,'name':name} for key,name in MODELS.items()]})
         if self.path == '/api/finance/ai-status':
             from ai_rules import status
             return self.reply(200,status())
@@ -252,11 +255,11 @@ class Handler(BaseHTTPRequestHandler):
             page = page.replace('</main>', panel + '</main>')
             # Serve one current document so stale or blocked companion scripts
             # cannot leave the obsolete analysis-only handler active.
-            for name in ('linked-finance.js', 'amount-format.js', 'finance-edits.js', 'finance-preview.js', 'finance-forecast.js', 'finance-summary.js'):
+            for name in ('i18n-de.js', 'i18n.js', 'linked-finance.js', 'amount-format.js', 'finance-edits.js', 'finance-preview.js', 'finance-forecast.js', 'finance-summary.js', 'finance-model.js'):
                 script = Path(__file__).with_name(name).read_text(encoding='utf-8')
                 page = page.replace('<script src="/' + name + '"></script>', '<script>\n' + script + '\n</script>')
             return self.reply(200, page.encode(), 'text/html; charset=utf-8')
-        if self.path in ('/linked-finance.js', '/finance-edits.js', '/finance-preview.js', '/finance-profit-loss.js', '/finance-forecast.js', '/finance-summary.js', '/amount-format.js'):
+        if self.path in ('/i18n-de.js', '/i18n.js', '/linked-finance.js', '/finance-edits.js', '/finance-preview.js', '/finance-profit-loss.js', '/finance-forecast.js', '/finance-summary.js', '/amount-format.js'):
             name = self.path.lstrip('/')
             kind = 'text/javascript; charset=utf-8' if name.endswith('.js') else 'text/html; charset=utf-8'
             return self.reply(200, Path(__file__).with_name(name).read_bytes(), kind)
@@ -272,6 +275,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if self.headers.get('Origin') is not None and self.headers.get('Origin') not in self.allowed_origins:
             return self.reply(403, {'error': 'Origin not allowed'})
+        model_token = None
         try:
             length = int(self.headers.get('Content-Length', '0'))
             if not 0 < length <= MAX_REQUEST:
@@ -290,6 +294,8 @@ class Handler(BaseHTTPRequestHandler):
                 result['pdf']=base64.b64encode(result['pdf']).decode()
                 return self.reply(200,result)
             request = json.loads(self.rfile.read(length))
+            from ai_models import select_model, DEFAULT_MODEL
+            model_token = select_model(request.get('ai_model', DEFAULT_MODEL))
             if self.path == '/api/finance/analysis-job':
                 from analysis_jobs import poll
                 return self.reply(200,poll(request.get('job')))
@@ -351,9 +357,10 @@ class Handler(BaseHTTPRequestHandler):
                 if self.path.endswith('-start'):
                     from analysis_jobs import start
                     edits=request.get('edits',[])
-                    return self.reply(200,start(lambda:forecast_preview(data,extracted,edits)))
+                    assume_volume=request.get('assume_volume',False)
+                    return self.reply(200,start(lambda:forecast_preview(data,extracted,edits,assume_volume)))
                 if self.path.endswith('-preview'):
-                    return self.reply(200,forecast_preview(data,extracted,request.get('edits',[])))
+                    return self.reply(200,forecast_preview(data,extracted,request.get('edits',[]),request.get('assume_volume',False)))
                 output,result=forecast_export(data,extracted,request.get('forecast'),request.get('reviewed') is True,request.get('allow_raster') is True)
                 from change_preview import previews
                 return self.reply(200,{'pdf':base64.b64encode(output).decode(),'highlighted':previews(data,output,result['changes']),**result})
@@ -455,6 +462,10 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(400, {'error': str(exc)})
         except Exception:
             self.reply(500, {'error': 'Unable to process this PDF.'})
+        finally:
+            if model_token is not None:
+                from ai_models import reset_model
+                reset_model(model_token)
 
 
 if __name__ == '__main__':

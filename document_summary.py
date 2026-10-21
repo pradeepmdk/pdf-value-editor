@@ -8,6 +8,7 @@ import urllib.request
 from general_finance import format_amount
 from statement_profiles import normalized
 from openrouter_dependencies import MODEL, ENDPOINT
+from ai_models import selected_model, model_payload
 
 
 def facts(statement):
@@ -58,6 +59,18 @@ def facts(statement):
                 'metrics':[{'key':key,'amount':format_amount(value,statement['locale']),'ids':[c['id'] for c in source],'computed':True}
                     for key,value,source in [('income',revenue,income),('expenses',cost,expense),('result',revenue-cost,income+expense)]],
                 'costs':[{'key':row,'label':items[0]['label'],'amount':format_amount(sum((Decimal(c['value'])*(1 if c['column_index']==debit else -1) for c in items),Decimal(0)),statement['locale']),'ids':[c['id'] for c in items]} for row,items in groups.items()]})
+    elif statement.get('profile')=='buhl_bwa':
+        for col,kind,column in [(0,'month','Month'),(3,'ytd','Year')]:
+            selected=[c for c in cells if c.get('column_index')==col and c.get('row_kind')]
+            by_row={c['row']:c for c in selected}
+            revenue_end=next(i for i,c in enumerate(selected) if c['row']=='summegesamtleistung')
+            metrics=[{'key':'income','amount':by_row['summegesamtleistung']['text'],'ids':[by_row['summegesamtleistung']['id']],'computed':False}]
+            metrics+=[{'key':'revenue_'+c['row'],'label':c['label'],'amount':c['text'],'ids':[c['id']],'computed':False}
+                for c in selected[:revenue_end] if c['row_kind']=='account']
+            metrics+=[{'key':key,'amount':by_row[row]['text'],'ids':[by_row[row]['id']],'computed':False}
+                for key,row in [('goods','summewarenundmaterial'),('operating_costs','summegesamtkosten'),('result','summeergebnis')] if row in by_row]
+            periods.append({'id':str(col),'period':column,'column':column,'kind':kind,'metrics':metrics,
+                'costs':[{'key':c['row'],'label':c['label'],'amount':c['text'],'ids':[c['id']]} for c in selected[revenue_end:] if c['row_kind']=='account']})
     by_id={c['id']:c for c in cells}
     for period in periods:
         for item in [*period['metrics'],*period['costs']]:
@@ -77,12 +90,14 @@ def summarize(statement,language='en',data=None):
     key=os.environ.get('OPENROUTER_API_KEY') or os.environ.get('OPEN_ROUTER_KEY')
     if not key:raise ValueError('Configure the OpenRouter key to get an AI document summary.')
     values=facts(statement)
-    cost_labels={c['key']:c['label'] for p in values['periods'] for c in p['costs']}
+    cost_labels={c['key']:c['label'] for p in values['periods'] for c in [*p['costs'],*p['metrics']] if c.get('label')}
+    period_kinds=['day','week','month','quarter','year_to_date','full_year','other']
     schema={'type':'object','properties':{
         'title':{'type':'string'},'overview':{'type':'string'},
         'highlights':{'type':'array','items':{'type':'string'}},'cautions':{'type':'array','items':{'type':'string'}},
-        'cost_labels':{'type':'array','items':{'type':'object','properties':{'key':{'type':'string'},'label':{'type':'string'}},'required':['key','label'],'additionalProperties':False}}},
-        'required':['title','overview','highlights','cautions','cost_labels'],'additionalProperties':False}
+        'cost_labels':{'type':'array','items':{'type':'object','properties':{'key':{'type':'string'},'label':{'type':'string'}},'required':['key','label'],'additionalProperties':False}},
+        'periods':{'type':'array','items':{'type':'object','properties':{'id':{'type':'string'},'label':{'type':'string'},'kind':{'type':'string','enum':period_kinds}},'required':['id','label','kind'],'additionalProperties':False}}},
+        'required':['title','overview','highlights','cautions','cost_labels','periods'],'additionalProperties':False}
     state={'facts':values,'cost_labels_to_translate':cost_labels,'fields':[
         {'id':c['id'],'page':c['page'],'text':c['text'],'label':c.get('label',c['context']),
          'column':c.get('column',''),'editable':c.get('editable',False),'mode':c['mode']} for c in statement['cells']]}
@@ -105,10 +120,16 @@ def summarize(statement,language='en',data=None):
         'not a printed BWA profit row. Opening balances are not annual income. Attached ledger pages are not automatically synchronized. '
         'If discrepancies is non-empty, explain that the source is inconsistent and recalculation is blocked. '
         'If source_verified is false without discrepancies, explain that verification has not been established; do not invent inconsistencies. '
+        'For every facts.periods entry return exactly one periods item with the same id: kind is day, week, month, quarter, '
+        'year_to_date, full_year or other, and label is a short name of the period exactly as the document states it, in the requested language '
+        '(for example "Juli 2025", "Januar bis Juli 2025 (kumuliert)", "Geschäftsjahr 2024", "14.08.2025"). Determine both from the document headers, '
+        'column titles and report date, not from the placeholder period names. A yearly column of a monthly report that ends in month M covers '
+        'January to M (year_to_date) unless the document states a full year or a different fiscal year. Never invent a date or year that the document does not show; '
+        'if the period is unclear, use a generic label such as "Monat" or "Jahr kumuliert" and kind other. '
         'Limit highlights and cautions to six short items each. Return every text field in the requested language.')
     payload={'model':MODEL,'temperature':0,'max_tokens':8000,'messages':[{'role':'system','content':prompt},{'role':'user','content':json.dumps(state,ensure_ascii=False)}],
         'response_format':{'type':'json_schema','json_schema':{'name':'localized_document_summary','strict':True,'schema':schema}},'provider':{'require_parameters':True}}
-    body=json.dumps(payload).encode()
+    body=json.dumps(model_payload(payload)).encode()
     if len(body)>350000:raise ValueError('Document summary exceeds the AI context budget; no fields were silently omitted.')
     req=urllib.request.Request(ENDPOINT,data=body,headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'})
     try:
@@ -124,7 +145,12 @@ def summarize(statement,language='en',data=None):
         labels=result.get('cost_labels')
         if not isinstance(labels,list) or any(not isinstance(v,dict) or not isinstance(v.get('label'),str) for v in labels):raise ValueError('Invalid translated cost labels.')
         if len(labels)!=len(cost_labels) or {v.get('key') for v in labels}!=set(cost_labels):raise ValueError('Incomplete or invented translated cost category.')
+        periods=result.get('periods')
+        if not isinstance(periods,list) or sorted(str(v.get('id')) for v in periods if isinstance(v,dict))!=sorted(p['id'] for p in values['periods']):
+            raise ValueError('Periods do not match the document columns.')
+        if any(v.get('kind') not in period_kinds or not isinstance(v.get('label'),str) or not v['label'].strip() or len(v['label'])>80 for v in periods):
+            raise ValueError('Invalid period label.')
     except urllib.error.HTTPError as exc:raise ValueError(f'OpenRouter document summary failed (HTTP {exc.code}). Check credits and access.') from None
     except (urllib.error.URLError,TimeoutError):raise ValueError('OpenRouter document summary timed out or could not connect. Local extraction remains available.') from None
     except (ValueError,KeyError,TypeError,IndexError) as exc:raise ValueError('AI document summary failed validation: '+str(exc)) from None
-    return {'language':language,'model':MODEL,'facts':values,'summary':result}
+    return {'language':language,'model':selected_model(),'facts':values,'summary':result}

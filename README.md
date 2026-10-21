@@ -272,3 +272,26 @@ The change-amount controls remain disabled until the upload's AI summary has
 finished. They never expose the temporary raw extraction list. Failed summaries
 keep editing disabled and offer a retry; only the completed analysis populates
 the dropdown.
+
+The **AI model** selector supports GPT-4.1 (default), GPT-6 Astra, GPT-6.1 Sol,
+GPT-6 Luna and Google Gemini 4 Argon through OpenRouter. The browser remembers
+the choice and sends it with each request. Background jobs retain their own
+selection; users do not change each other's model. Changing models refreshes
+the AI summary and invalidates the old preview. Pricing and account availability
+depend on OpenRouter. Source validation and Decimal calculations remain local.
+
+Income changes leave expense inputs unchanged by default. The optional
+**Assume the income change comes from sales volume** scenario allows bounded
+variable-cost proposals, assuming unchanged prices and a similar sales mix.
+Payroll, telephone, rent, taxes and other non-variable expenses do not scale
+automatically. The review explains each changed or unchanged expense and flags
+estimates that reach a safeguard. Safeguards are not evidence of actual budgets,
+capacity or achievable profit. Explicit expense edits remain subject to review.
+
+Cash-basis BWA period links work in both directions: a monthly edit adds its delta
+to year-to-date, preserving earlier months; a YTD edit allocates the current month
+by assigning the full correction delta to that month, preserving earlier-month
+cumulative amounts. This correction policy is labeled in the preview; explicit
+monthly entries take precedence. SuSa does not reverse-
+allocate movements or invent counterpart bookings. Prior-year inputs stay fixed;
+current-period repeats, totals, variances and percentages are recalculated.

@@ -52,6 +52,41 @@ class CashBasisTests(unittest.TestCase):
         self.assertNotIn('c115',values)  # Equal monthly income/cost increases.
         self.assertEqual(values['c117'],'-32.873,94')
 
+    def test_year_to_date_correction_updates_current_month_and_recalculates_reports(self):
+        monthly=next(c for c in self.source['cells'] if c['id']=='c1')
+        annual=next(c for c in self.source['cells'] if c['page']==1 and c.get('row')==monthly['row'] and c.get('column_index')==4)
+        target=format_amount(Decimal(annual['value'])*2,'de')
+        result=calculate_profile(self.source,[{'id':annual['id'],'value':target}])
+        change=next(c for c in result['changes'] if c['id']==monthly['id'])
+        self.assertEqual(change['new'],format_amount(Decimal(monthly['value'])+Decimal(annual['value']),'de'))
+        self.assertIn('YTD correction',change['reason'])
+        self.assertEqual({c['page'] for c in result['changes']},set(range(1,7)))
+        # The historical comparison inputs are retained.
+        self.assertFalse(any(c['page']==3 and c.get('column_index') in (1,5) for c in result['changes']))
+
+    def test_monthly_insurance_tax_cost_correction_updates_year_to_date_and_result(self):
+        from statement_profiles import normalized
+        monthly=next(c for c in self.source['cells'] if c['page']==1 and c.get('row')==normalized('Steuern/Versicherungen/Beiträge') and c.get('column_index')==0)
+        annual=next(c for c in self.source['cells'] if c['page']==1 and c.get('row')==monthly['row'] and c.get('column_index')==4)
+        result=calculate_profile(self.source,[{'id':monthly['id'],'value':format_amount(Decimal(monthly['value'])+1,'de')}])
+        changes={c['id']:c for c in result['changes']}
+        self.assertEqual(changes[annual['id']]['new'],format_amount(Decimal(annual['value'])+1,'de'))
+        for c in self.source['cells']:
+            if c['page']==1 and c.get('row')==normalized('Einnahmen-Ausgaben-BWA') and c.get('column_index') in (0,4):
+                self.assertEqual(changes[c['id']]['new'],format_amount(Decimal(c['value'])-1,'de'))
+
+    def test_year_to_date_export_rechecks_allocated_month_and_preserves_ledger(self):
+        monthly=next(c for c in self.source['cells'] if c['id']=='c1')
+        annual=next(c for c in self.source['cells'] if c['page']==1 and c.get('row')==monthly['row'] and c.get('column_index')==4)
+        edits=[{'id':annual['id'],'value':format_amount(Decimal(annual['value'])*2,'de')}]
+        output,_=apply(self.data,self.source,edits,self.source['profile_rules'])
+        saved=validate_analysis(output,analyze(output))
+        self.assertTrue(saved['verified'],saved['discrepancies'])
+        self.assertEqual(next(c['value'] for c in saved['cells'] if c['id']=='c1'),str((Decimal(monthly['value'])+Decimal(annual['value'])).quantize(Decimal('.01'))))
+        with pymupdf.open(stream=self.data,filetype='pdf') as original,pymupdf.open(stream=output,filetype='pdf') as modified:
+            for i in range(6,len(original)):
+                self.assertEqual(original[i].get_pixmap().samples,modified[i].get_pixmap().samples)
+
     def test_reject_derived_inputs_rules_and_undefined_percentages(self):
         with self.assertRaisesRegex(ValueError,'independent'):
             calculate_profile(self.source,[{'id':'c115','value':'100,00'}])
@@ -173,3 +208,59 @@ class SuSaSampleTests(unittest.TestCase):
 
 
 if __name__=='__main__':unittest.main()
+
+
+class BuhlBwaTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.data=(ROOT/'57 BWA Amaron Management 7-2025_261008_193942.pdf').read_bytes()
+        cls.source=validate_analysis(cls.data,analyze(cls.data))
+
+    def test_structure_is_verified_without_ai(self):
+        self.assertEqual(self.source['profile'],'buhl_bwa')
+        self.assertTrue(self.source['verified'])
+        self.assertEqual(len(self.source['profile_rules']),250)
+        self.assertEqual(sum(c['editable'] for c in self.source['cells']),56)
+        with patch('urllib.request.urlopen') as network:
+            result=decide(self.source,[{'id':'c7','value':'36.825,00'}])
+            network.assert_not_called()
+        self.assertFalse(result['unresolved'])
+
+    def test_revenue_updates_sums_year_percentages_and_summary(self):
+        values={c['id']:c['new'] for c in calculate_profile(self.source,[{'id':'c7','value':'36.825,00'}])['changes']}
+        self.assertEqual(values['c1'],'125.958,09')    # Umsatzerlöse group
+        self.assertEqual(values['c10'],'340.731,00')   # same delta in the annual column
+        self.assertEqual(values['c14'],'70,76')        # other revenue account share
+        self.assertEqual(values['c253'],'24.839,62')   # Summe Betriebsergebnis
+        self.assertEqual(values['c280'],'128.740,17')  # Summe Ergebnis, year
+        self.assertEqual(values['c285'],'55.765,98')   # Rohertrag
+        self.assertEqual(values['c289'],'79,45')
+        self.assertNotIn('c61',values)                 # payroll is independent
+
+    def test_cost_edit_updates_expense_percentages(self):
+        values={c['id']:c['new'] for c in calculate_profile(self.source,[{'id':'c61','value':'-25.166,35'}])['changes']}
+        self.assertEqual(values['c55'],'-30.869,24')
+        self.assertEqual(values['c247'],'-40.926,36')
+        self.assertEqual(values['c253'],'4.839,62')
+        self.assertEqual(values['c3'],'-283,33')
+
+    def test_rejects_derived_input(self):
+        with self.assertRaises(ValueError):
+            calculate_profile(self.source,[{'id':'c1','value':'1,00'}])
+
+    def test_export_keeps_fonts_and_untouched_pixels(self):
+        edits=[{'id':'c7','value':'36.825,00'}]
+        output,result=apply(self.data,self.source,edits,self.source['profile_rules'])
+        saved=validate_analysis(output,analyze(output))
+        self.assertTrue(saved['verified'])
+        new={c['id']:c['new'] for c in result['changes']}
+        self.assertEqual({c['id']:c['text'] for c in saved['cells']},{c['id']:new.get(c['id'],c['text']) for c in self.source['cells']})
+        with pymupdf.open(stream=self.data) as a,pymupdf.open(stream=output) as b:
+            for page in range(len(a)):
+                self.assertEqual(a[page].get_fonts(),b[page].get_fonts())
+                x,y=(np.frombuffer(d[page].get_pixmap(dpi=100).samples,np.uint8).reshape(-1,a[page].get_pixmap(dpi=100).w,3) for d in (a,b))
+                mask=np.ones(x.shape[:2],bool)
+                for c in result['changes']:
+                    if c['page']==page+1:
+                        x0,y0,x1,y1=(v*100/72 for v in c['box']);mask[int(y0)-2:int(y1)+3,int(x1-84):int(x1)+3]=False
+                self.assertFalse((x!=y).any(axis=2)[mask].any())

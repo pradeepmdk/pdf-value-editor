@@ -364,6 +364,17 @@ class Handler(BaseHTTPRequestHandler):
                 output,result=forecast_export(data,extracted,request.get('forecast'),request.get('reviewed') is True,request.get('allow_raster') is True)
                 from change_preview import previews
                 return self.reply(200,{'pdf':base64.b64encode(output).decode(),'highlighted':previews(data,output,result['changes']),**result})
+            if self.path in ('/api/finance/scenario-start', '/api/finance/scenario-apply'):
+                from general_finance import validate_analysis
+                from realistic_scenario import preview as scenario_preview, export as scenario_export
+                extracted=validate_analysis(data,request['analysis'])
+                if self.path.endswith('-start'):
+                    from analysis_jobs import start
+                    edits=request.get('edits',[]);language=request.get('language','en')
+                    return self.reply(200,start(lambda:scenario_preview(data,extracted,edits,language)))
+                output,result=scenario_export(data,extracted,request.get('scenario'),request.get('reviewed') is True,request.get('allow_raster') is True)
+                from change_preview import previews
+                return self.reply(200,{'pdf':base64.b64encode(output).decode(),'highlighted':previews(data,output,result['changes']),**result})
             if self.path in ('/api/finance/profit-loss-options', '/api/finance/profit-loss-preview'):
                 from general_finance import validate_analysis
                 from profit_loss import options, resolve

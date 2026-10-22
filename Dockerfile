@@ -11,6 +11,7 @@ RUN pip install --no-cache-dir -r requirements.txt \
     && pip install --no-cache-dir opencv-python-headless
 
 COPY --chown=user *.py *.html *.js ./
+COPY --chown=user prompts ./prompts
 USER user
 
 # Spaces sets SPACE_HOST (e.g. user-space.hf.space); browsers post from that origin.

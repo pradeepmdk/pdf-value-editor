@@ -46,12 +46,12 @@ def analyze(data, locale='de', rotation=0):
     return result
 
 
-def plan(data, extracted, edits, rules):
+def plan(data, extracted, edits, rules, max_edits=30):
     if extracted.get('profile'):
         from statement_profiles import calculate_profile
         if rules != extracted['profile_rules']:
             raise ValueError('Verified format rules changed or are incomplete. Recalculate from the original analysis.')
-        return calculate_profile(extracted, edits)
+        return calculate_profile(extracted, edits, max_edits)
     if extracted.get('export_mode') == 'direct' and not rules:
         raise ValueError('No reviewed dependencies were supplied. Click Identify affected fields, review the suggestions, then Accept reviewed dependencies before verifying changes.')
     result = calculate(extracted, edits, rules)
@@ -68,8 +68,8 @@ def plan(data, extracted, edits, rules):
     return result
 
 
-def apply(data, extracted, edits, rules, allow_raster=False):
-    result = plan(data, extracted, edits, rules)
+def apply(data, extracted, edits, rules, allow_raster=False, max_edits=30):
+    result = plan(data, extracted, edits, rules, max_edits)
     if extracted.get('profile'):
         if any(c['mode']=='ocr' for c in result['changes']):
             if not allow_raster:

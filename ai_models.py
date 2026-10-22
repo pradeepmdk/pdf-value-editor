@@ -7,7 +7,6 @@ MODELS = {
     'openai/gpt-6-astra': 'OpenAI GPT-6 Astra',
     'openai/gpt-6.1-sol': 'OpenAI GPT-6.1 Sol',
     'openai/gpt-6-luna': 'OpenAI GPT-6 Luna',
-    'google/gemini-4-argon': 'Google Gemini 4 Argon',
 }
 _model = ContextVar('finance_ai_model', default=DEFAULT_MODEL)
 
@@ -22,9 +21,18 @@ def select_model(model):
 def reset_model(token):
     _model.reset(token)
 
+REASONING_HEADROOM = 16000
+
 def model_payload(payload):
-    """Reasoning GPT models do not accept temperature on OpenRouter."""
+    """Reasoning GPT models do not accept temperature on OpenRouter. All
+    reasoning models (everything except GPT-4.1) think before answering: low
+    effort keeps them fast, and extra tokens stop the thinking from using up
+    the space meant for the answer."""
     result = {**payload, 'model': selected_model()}
     if selected_model().startswith('openai/gpt-6'):
         result.pop('temperature', None)
+    if selected_model() != DEFAULT_MODEL:
+        result.setdefault('reasoning', {'effort': 'low'})
+        if 'max_tokens' in result:
+            result['max_tokens'] += REASONING_HEADROOM
     return result

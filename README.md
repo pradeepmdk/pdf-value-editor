@@ -188,9 +188,44 @@ unexplained discrepancies remain blocked.
 Checks: `node test_profit_loss_ui.js` and
 `..\.venv\Scripts\python.exe -m unittest test_profit_loss -v`.
 
-## Bounded expense planning
+## Realistic AI scenario (current UI)
 
-The current UI hides **Set a profit / loss target** and replaces uniform scaling
+The prompts are plain text files in `prompts/`: `scenario_research.txt` (web search), `scenario_extract.txt` (figures with cited sources) and `scenario_drivers.txt` (driver per account). They are read on every request, so an edit applies without a restart; `{language}` becomes English or German. The JSON output schemas and all arithmetic stay in `realistic_scenario.py`.
+
+For the DATEV BWA 01, the DATEV cash-basis BWA and the Buhl BWA, the finance
+page enables **Realistic AI scenario (web research for the document year)** by
+default. Enter your own change(s), then click **Preview realistic AI scenario**
+(`realistic_scenario.py`, endpoints `/api/finance/scenario-start` and
+`/api/finance/scenario-apply`):
+
+1. **Web research.** GPT-4.1 with OpenRouter's web search reads the page-1 header
+   and account labels, determines the year, region and industry, and looks up
+   real figures for that year (inflation, wages, energy, fuel, rents, industry
+   prices).
+2. **Citations only.** A second, structured call extracts the figures; each must
+   point at a numbered page the search actually returned (`url_citation`
+   annotations). Invented links are impossible; figures without a source are
+   dropped. Changes outside ±100 % are rejected.
+3. **Drivers, not amounts.** A third call decides for every other editable account
+   in the edited period column(s) whether it follows **sales**, one or more
+   **researched figures** (averaged), or stays **unchanged**, and flags revenue
+   accounts. The AI does no arithmetic.
+4. **Python calculates.** Python computes the exact total-revenue change of each
+   column from your edits, applies it or the researched percentages with Decimal,
+   propagates month changes into year-to-date and recalculates every total with
+   the verified format rules. Zero accounts stay zero.
+
+The review lists the figures with source links, each account's driver, reason and
+before/after amounts, and every changed field. The PDF is created only after you
+confirm, from a signed preview. One scenario uses three OpenRouter calls (about
+$0.10–0.15 with web search). SuSa is not supported because movements need balanced
+counterpart bookings. Checks: `..\.venv\Scripts\python.exe -m unittest
+test_realistic_scenario -v` and `node test_finance_forecast.js`.
+
+## Bounded expense planning (legacy API, UI replaced)
+
+The UI described below was replaced by the realistic AI scenario; the
+`/api/finance/forecast-*` endpoints remain. Previously the UI hid **Set a profit / loss target** and replaces uniform scaling
 with **Realistic expense planning**, enabled by default for recognized BWA/SuSa.
 Choose income or an expense from the normal input dropdown. Annual DATEV income
 also has an **Annual income** planning option: Python allocates the entered total
@@ -274,7 +309,7 @@ keep editing disabled and offer a retry; only the completed analysis populates
 the dropdown.
 
 The **AI model** selector supports GPT-4.1 (default), GPT-6 Astra, GPT-6.1 Sol,
-GPT-6 Luna and Google Gemini 4 Argon through OpenRouter. The browser remembers
+and GPT-6 Luna through OpenRouter. The browser remembers
 the choice and sends it with each request. Background jobs retain their own
 selection; users do not change each other's model. Changing models refreshes
 the AI summary and invalidates the old preview. Pricing and account availability

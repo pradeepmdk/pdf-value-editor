@@ -59,10 +59,10 @@ def validate(statement):
     return statement
 
 
-def calculate_profile(statement,edits):
+def calculate_profile(statement,edits,max_edits=30):
     if not statement.get('verified'):raise ValueError('Source statement has unexplained discrepancies. '+ '; '.join(statement['discrepancies'][:5]))
     cells={c['id']:c for c in statement['cells']};original={key:Decimal(c['value']) for key,c in cells.items()};values=dict(original)
-    if not isinstance(edits,list) or not 1<=len(edits)<=30 or len({e['id'] for e in edits})!=len(edits):raise ValueError('Provide one to thirty distinct input changes.')
+    if not isinstance(edits,list) or not 1<=len(edits)<=max_edits or len({e['id'] for e in edits})!=len(edits):raise ValueError(f'Provide one to {max_edits} distinct input changes.')
     affected=set();explicit={e['id'] for e in edits}
     for edit in edits:
         c=cells.get(edit['id'])

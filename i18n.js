@@ -27,8 +27,9 @@ function translate(text){
 }
 
 let lang='en';
-try{lang=localStorage.getItem('appLanguage')||localStorage.getItem('financeAnalysisLanguage')||''}catch{}
-if(lang!=='de'&&lang!=='en')lang=(navigator.language||'').toLowerCase().startsWith('de')?'de':'en';
+// English is the default; German only after the user picks it in the switch.
+try{lang=localStorage.getItem('appLanguageChoice')||'en'}catch{}
+if(lang!=='de')lang='en';
 window.appLanguage=()=>lang;
 window.appTranslate=text=>lang==='de'?translate(text):text;
 for(const name of ['alert','confirm','prompt']){const original=window[name];if(original)window[name]=(message,...rest)=>original.call(window,window.appTranslate(String(message??'')),...rest)}
@@ -76,7 +77,7 @@ function start(){
  select.style.cssText='width:auto;margin:0;padding:3px 6px;font:inherit';select.setAttribute('aria-label','Sprache / Language');
  select.append(new Option('English','en'),new Option('Deutsch','de'));select.value=lang;
  select.onchange=()=>{
-  lang=select.value;try{localStorage.setItem('appLanguage',lang)}catch{}
+  lang=select.value;try{localStorage.setItem('appLanguageChoice',lang)}catch{}
   apply();window.dispatchEvent(new CustomEvent('app-language-change',{detail:lang}));
  };
  document.body.append(box);apply();

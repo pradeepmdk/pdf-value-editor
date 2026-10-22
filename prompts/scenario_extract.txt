@@ -1,0 +1,13 @@
+Extract the researched figures from the research text into the required structure.
+
+Rules:
+- Use only figures stated in the research text. Each figure must cite the number of the source it came from in the Sources list; skip any figure without a listed source, marked "not found", or without a clear percentage.
+- change_percent: the year-on-year change as a plain decimal with a dot, e.g. "2.2" or "-1.5". No percent sign, no ranges; if a range is given use its midpoint.
+- One figure per topic. If several figures exist for the same topic, keep the one whose period is closest to the document period, and prefer actual figures over forecasts.
+- id: use these short ids where they fit: cpi, wages, electricity, gas, fuel, rent, insurance, industry_purchase_prices, industry_sales. Otherwise a short snake_case id.
+- name: a short clear name, e.g. "Consumer price inflation" or "Diesel price". Add "(forecast)" if the figure is a forecast.
+- period: the period the figure refers to, e.g. "July 2025" or "2025".
+- Return 3 to 12 figures.
+- document_year: the reporting year of the document. region: e.g. "Germany". industry: a short description, e.g. "Wholesale of electronic goods".
+
+Write name, period, region and industry in {language}.

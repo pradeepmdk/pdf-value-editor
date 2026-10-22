@@ -7,13 +7,14 @@ For each user change and each account set:
 
 revenue
 - true only for sales revenue accounts: Umsatzerlöse, Erlöse, Provisionserlöse, Erlöse aus Lieferungen und Leistungen (SKR03 8xxx, SKR04 4xxx), including revenue reductions (Erlösschmälerungen, Skonti gewährt).
-- false for everything else, including sonstige betriebliche Erträge, Zinserträge, Erträge aus Anlageabgängen, Bestandsveränderungen and all costs.
+- false for everything else, including Umsatzsteuer (VAT is not revenue), sonstige betriebliche Erträge, Zinserträge, Erträge aus Anlageabgängen, Bestandsveränderungen and all costs.
 - Python uses the revenue accounts to compute the exact change of total sales in the column.
 
 driver "sales" - the account moves with sales volume:
 - Wareneingang, Material- und Stoffverbrauch, bezogene Waren (SKR03 3xxx, SKR04 5xxx)
 - Fremdleistungen, Subunternehmer, Ausgangsfrachten, Verpackung, Verkaufsprovisionen, Lizenzgebühren tied to sales
 - Bestandsveränderungen only if they clearly follow production volume.
+- Umsatzsteuer (output VAT collected on sales, e.g. "Umsatzsteuer", "Umsatzsteuer 19%") - VAT is a fixed share of sales, so it always moves with sales.
 
 driver "indicator" - the account follows researched_indicators (use their ids). Choose the most specific match; list two only if both clearly apply (Python uses their average):
 - Löhne, Gehälter, Aushilfslöhne, gesetzliche soziale Aufwendungen, Berufsgenossenschaft, Personalnebenkosten -> wages
@@ -21,13 +22,17 @@ driver "indicator" - the account follows researched_indicators (use their ids). 
 - Kfz-Kosten, Treibstoff, Benzin, Diesel -> fuel
 - Miete, Pacht, Raumkosten, Nebenkosten der Räume -> rent (if no rent figure was researched: cpi)
 - Versicherungen -> insurance (if not researched: cpi)
+- Kfz-Versicherungen -> vehicle_insurance (if not researched: insurance, then cpi)
+- Combined BWA lines that include insurance, e.g. "Steuern/Versicherungen/Beiträge" or "Versicherungen/Beiträge" -> insurance (if not researched: cpi). In small businesses these lines are mostly insurance premiums; do not use "none" for them. Insurance follows premium prices, never sales.
 - Reparaturen und Instandhaltung, Bürobedarf, Porto, Telefon, Werbekosten, Reisekosten, Bewirtungskosten, Fortbildung, Beratungskosten, sonstige Kosten, Nebenkosten des Geldverkehrs -> cpi
 - Purchase accounts may use industry_purchase_prices instead of "sales" only when the research shows a clear price change and sales volume is unchanged.
 - Use only ids that exist in researched_indicators. If no suitable indicator exists, use "none".
 
 driver "none" - no change:
 - Abschreibungen, Zinsen und ähnliche Aufwendungen, Steuern vom Einkommen und Ertrag, sonstige Steuern, Kfz-Steuer
-- Leasing and other fixed contracts, Beiträge, Mitgliedschaften
+- Vorsteuer (input VAT on purchases), Umsatzsteuer-Zahlung, Umsatzsteuer-Vorauszahlung, Umsatzsteuer-Erstattung: they depend on purchases and tax-office timing, not on this period's sales
+- Cash and balance items of cash-basis reports: Erhaltene/Geleistete Anzahlungen, Zugang Forderungen, Zugang Verbindlichkeiten, Buchwert Anlagenabgänge, Darlehen, Anlagenzugänge/-abgänge, Privateinlagen, Privatentnahmen and other private items
+- Leasing and other fixed contracts, Beiträge, Mitgliedschaften (a line that also contains Versicherungen follows insurance, see above)
 - One-off or unusual items, sonstige betriebliche Erträge, außerordentliche Posten
 - Revenue accounts the user did not change
 - Accounts with amount zero

@@ -14,7 +14,8 @@ Find, where available:
 - Gas / heating prices, year-on-year.
 - Fuel prices (diesel, petrol), year-on-year.
 - Commercial rents (Gewerbemieten) or rent index, year-on-year.
-- Insurance premiums, year-on-year.
+- Insurance premiums for businesses (commercial property, business liability; e.g. GDV), year-on-year. If only consumer insurance premiums (Verbraucherpreisindex) are found, report those and mark them "consumer".
+- Motor vehicle insurance premiums (Kfz-Versicherung), year-on-year.
 - Purchase prices for the industry (Erzeugerpreise, Großhandelspreise or Einfuhrpreise for the goods it buys), year-on-year.
 - Sales or turnover trend for the industry (real or nominal), year-on-year.
 

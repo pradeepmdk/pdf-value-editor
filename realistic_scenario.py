@@ -243,8 +243,9 @@ def sales_changes(statement, edits, proposals, user_revenue):
         for key, p in proposals.items():
             if p['revenue'] and cells[key].get('column_index') == column:
                 old += Decimal(cells[key]['value']);new += Decimal(cells[key]['value'])
-        change = (new / old - 1) * 100 if old else Decimal(0)
-        result[column] = max(Decimal(-100), min(Decimal(300), change))
+        # The user's own revenue figures set this change, so sales-driven
+        # accounts (e.g. Umsatzsteuer) follow it exactly, without an upper cap.
+        result[column] = max(Decimal(-100), (new / old - 1) * 100 if old else Decimal(0))
     return result
 
 
@@ -268,6 +269,11 @@ def preview(data, statement, edits, language='en'):
     sales = sales_changes(statement, edits, proposals, user_revenue)
     indicators = {v['id']: v for v in found['indicators']}
     merged = {e['id']: e['value'] for e in edits}
+    # DATEV cash-basis reports put a year-to-date change into the displayed
+    # month. A price change applied to the whole year-to-date amount would land
+    # in that single month (wages +2.7 % becoming July +32 %), so price-driven
+    # accounts change by the month amount times the percentage instead.
+    month_of = {a: m for m, a in statement.get('period_pairs', [])} if statement.get('profile') == 'datev_cash_basis' else {}
     rows = []
     for c in accounts:
         p = proposals[c['id']]
@@ -275,9 +281,11 @@ def preview(data, statement, edits, language='en'):
         if p['driver'] == 'sales':change = sales[c.get('column_index')]
         if p['driver'] == 'indicator':
             change = sum((Decimal(indicators[k]['change_percent']) for k in p['indicators']), Decimal(0)) / len(p['indicators'])
-        change = change.quantize(Decimal('.01'), rounding=ROUND_HALF_UP)
         baseline = Decimal(c['value'])
-        new = (baseline * (1 + change / 100)).quantize(Decimal('.01'), rounding=ROUND_HALF_UP)
+        basis = Decimal(cells[month_of[c['id']]]['value']) if p['driver'] == 'indicator' and c['id'] in month_of else baseline
+        # The exact sales ratio is used (VAT stays exactly 19 % of revenue); only the shown percentage is rounded.
+        new = (baseline + basis * change / 100).quantize(Decimal('.01'), rounding=ROUND_HALF_UP)
+        change = change.quantize(Decimal('.01'), rounding=ROUND_HALF_UP)
         if c['suffix'] and new < 0:new = Decimal(0)
         if new != baseline:merged[c['id']] = format_amount(new, statement['locale'], c['suffix'])
         rows.append({'id': c['id'], 'context': c['context'], 'before': c['text'], 'after': format_amount(new, statement['locale'], c['suffix']),

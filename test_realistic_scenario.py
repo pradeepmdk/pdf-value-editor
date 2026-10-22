@@ -150,6 +150,34 @@ class RealisticScenarioTests(unittest.TestCase):
             with patch('urllib.request.urlopen',failing(400,bad)),self.assertRaisesRegex(ValueError,r'HTTP 400.*Reason: Provider returned error Invalid JSON schema'):
                 rs._call({'model':'m','messages':[]})
 
+    def test_cash_basis_ytd_edit_keeps_month_realistic(self):
+        data=(ROOT/'10-10-docs'/'10257_BWA_2026-07_261009_205545.pdf').read_bytes()
+        source=validate_analysis(data,analyze(data))
+        ytd={(c.get('label') or c['context']):c for c in source['cells'] if c.get('editable') and c['column_index']==4}
+        month={a:m for m,a in source['period_pairs']}
+        cells={c['id']:c for c in source['cells']}
+        def drivers(payload):
+            state=json.loads(payload['messages'][1]['content'])
+            pick={'Umsatzsteuer':'sales','Personalkosten':'indicator'}
+            return {'content':json.dumps({'user_changes':{u['id']:{'revenue':True} for u in state['user_changes']},'summary':'Planning scenario.',
+                'accounts':{a['id']:{'revenue':False,'driver':pick.get(a['label'],'none'),'indicators':['wages'] if a['label']=='Personalkosten' else [],'reason':'Test.'}
+                            for a in state['accounts']}})}
+        answers=iter([research_message(),extraction()])
+        def fake(payload,timeout=180):return next(answers,None) or drivers(payload)
+        with patch.dict('os.environ',{'OPENROUTER_API_KEY':'test'}),patch.object(rs,'_call',side_effect=fake):
+            result=rs.preview(data,source,[{'id':ytd['betrieblicher Tätigkeit']['id'],'value':'100.000,00'}],'en')
+        changed={c['id']:parse_amount(c['new'],'de')[0] for c in result['changes']}
+        # Revenue +41.558,78 lands in July (+453 %); VAT follows exactly, without a cap.
+        vat=ytd['Umsatzsteuer']
+        self.assertEqual(changed[vat['id']]-Decimal(vat['value']),(Decimal('41558.78')*Decimal(vat['value'])/Decimal('58441.22')).quantize(Decimal('.01')))
+        self.assertEqual(changed[month[vat['id']]]-Decimal(cells[month[vat['id']]]['value']),changed[vat['id']]-Decimal(vat['value']))
+        # Wages +4.2 % apply to the July amount, not the whole year-to-date amount.
+        wage=ytd['Personalkosten'];july=cells[month[wage['id']]]
+        self.assertEqual(changed[month[wage['id']]],(Decimal(july['value'])*Decimal('1.042')).quantize(Decimal('.01')))
+        self.assertEqual(changed[wage['id']],Decimal(wage['value'])+changed[month[wage['id']]]-Decimal(july['value']))
+        _,saved=rs.export(data,source,result['scenario'],True)
+        self.assertEqual(len(saved['changes']),len(result['changes']))
+
     def test_susa_is_rejected_before_any_ai_call(self):
         with patch.object(rs,'_call') as call,self.assertRaises(ValueError):
             rs.preview(self.data,{**self.source,'profile':'addison_susa','export_mode':'image'},[{'id':'x','value':'1,00'}])

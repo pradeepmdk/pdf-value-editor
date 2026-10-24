@@ -31,6 +31,20 @@ class CashBasisTests(unittest.TestCase):
             network.assert_not_called()
         self.assertFalse(result['unresolved'])
 
+    def test_originals_reconcile_and_account_mismatches_are_reported(self):
+        from statement_profiles import recognize, validate
+        for path in (ROOT/'10-10-docs').glob('10257*.pdf'):
+            source=recognize(path.read_bytes())
+            self.assertTrue(source['ledger_attached'])
+            self.assertTrue(source['verified'], source['discrepancies'])
+            for check in source['ledger_checks']:
+                changed=deepcopy(source)
+                cell=next(c for c in changed['cells'] if c['id']==check['id'])
+                cell['value']=str(Decimal(cell['value'])+Decimal('0.01'))
+                validate(changed)
+                self.assertFalse(changed['verified'])
+                self.assertTrue(any('Attached SuSa' in error for error in changed['discrepancies']))
+
     def test_income_updates_year_comparisons_percentages_and_liquidity(self):
         result=calculate_profile(self.source,[{'id':'c1','value':'3.837,82'}])
         values={c['id']:c['new'] for c in result['changes']}
@@ -76,16 +90,9 @@ class CashBasisTests(unittest.TestCase):
                 self.assertEqual(changes[c['id']]['new'],format_amount(Decimal(c['value'])-1,'de'))
 
     def test_year_to_date_export_rechecks_allocated_month_and_preserves_ledger(self):
-        monthly=next(c for c in self.source['cells'] if c['id']=='c1')
-        annual=next(c for c in self.source['cells'] if c['page']==1 and c.get('row')==monthly['row'] and c.get('column_index')==4)
-        edits=[{'id':annual['id'],'value':format_amount(Decimal(annual['value'])*2,'de')}]
-        output,_=apply(self.data,self.source,edits,self.source['profile_rules'])
-        saved=validate_analysis(output,analyze(output))
-        self.assertTrue(saved['verified'],saved['discrepancies'])
-        self.assertEqual(next(c['value'] for c in saved['cells'] if c['id']=='c1'),str((Decimal(monthly['value'])+Decimal(annual['value'])).quantize(Decimal('.01'))))
-        with pymupdf.open(stream=self.data,filetype='pdf') as original,pymupdf.open(stream=output,filetype='pdf') as modified:
-            for i in range(6,len(original)):
-                self.assertEqual(original[i].get_pixmap().samples,modified[i].get_pixmap().samples)
+        annual=next(c for c in self.source['cells'] if c['page']==1 and c.get('column_index')==4 and c.get('editable'))
+        with self.assertRaisesRegex(ValueError, 'Export blocked.*attached SuSa'):
+            apply(self.data,self.source,[{'id':annual['id'],'value':format_amount(Decimal(annual['value'])+1000,'de')}],self.source['profile_rules'])
 
     def test_reject_derived_inputs_rules_and_undefined_percentages(self):
         with self.assertRaisesRegex(ValueError,'independent'):
@@ -96,27 +103,21 @@ class CashBasisTests(unittest.TestCase):
             calculate_profile(self.source,[{'id':'c1','value':'0,00'}])
 
     def test_native_export_preserves_fonts_pixels_and_ledger_pages(self):
-        edits=[{'id':'c1','value':'12.837,82'}]
-        output,result=apply(self.data,self.source,edits,self.source['profile_rules'])
-        saved=validate_analysis(output,analyze(output))
-        self.assertTrue(saved['verified'])
-        self.assertEqual(next(c['text'] for c in saved['cells'] if c['id']=='c1'),'12.837,82')
-        with pymupdf.open(stream=self.data,filetype='pdf') as before,pymupdf.open(stream=output,filetype='pdf') as after:
-            for a,b in zip(before,after):
-                self.assertEqual(a.rect,b.rect);self.assertEqual(a.rotation,b.rotation)
-                if a.number>=6:self.assertEqual(a.get_pixmap().samples,b.get_pixmap().samples)
-                if a.number>=6:continue
-                zoom=2
-                pa=a.get_pixmap(matrix=pymupdf.Matrix(zoom,zoom),alpha=False);pb=b.get_pixmap(matrix=pymupdf.Matrix(zoom,zoom),alpha=False)
-                diff=np.any(np.frombuffer(pa.samples,dtype=np.uint8).reshape(pa.height,pa.width,3)!=np.frombuffer(pb.samples,dtype=np.uint8).reshape(pb.height,pb.width,3),axis=2)
-                allowed=np.zeros(diff.shape,dtype=bool)
-                for c in result['changes']:
-                    if c['page']!=a.number+1:continue
-                    old=pymupdf.Rect(c['box']);new=next(pymupdf.Rect(w[:4]) for w in b.get_text('words') if w[4]==c['new'] and abs(w[2]-old.x1)<.03 and abs(w[1]-old.y0)<.03)
-                    region=(old|new)+(-1,-1,1,1)
-                    allowed[max(0,int(region.y0*zoom)):int(region.y1*zoom)+1,max(0,int(region.x0*zoom)):int(region.x1*zoom)+1]=True
-                self.assertFalse(np.any(diff&~allowed))
-        self.assertTrue(previews(self.data,output,result['changes'])['after'])
+        with self.assertRaisesRegex(ValueError, 'Export blocked.*attached SuSa'):
+            apply(self.data,self.source,[{'id':'c1','value':'12.837,82'}],self.source['profile_rules'])
+
+    def test_internally_consistent_revenue_edit_fails_account_reconciliation(self):
+        from native_finance import apply_native
+        from statement_profiles import recognize
+        result=calculate_profile(self.source,[{'id':'c1','value':'12.837,82'}])
+        # Reproduce the old bug directly: all BWA formulas updated, ledger untouched.
+        output=apply_native(self.data,result['changes'])
+        saved=recognize(output)
+        self.assertFalse(saved['verified'])
+        self.assertTrue(any('Attached SuSa' in e for e in saved['discrepancies']))
+        with self.assertRaisesRegex(ValueError, 'unexplained discrepancies'):
+            calculate_profile(saved,[{'id':'c1','value':'13.837,82'}])
+
 
 
 class JulyCashBasisTests(CashBasisTests):

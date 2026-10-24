@@ -175,8 +175,8 @@ class RealisticScenarioTests(unittest.TestCase):
         wage=ytd['Personalkosten'];july=cells[month[wage['id']]]
         self.assertEqual(changed[month[wage['id']]],(Decimal(july['value'])*Decimal('1.042')).quantize(Decimal('.01')))
         self.assertEqual(changed[wage['id']],Decimal(wage['value'])+changed[month[wage['id']]]-Decimal(july['value']))
-        _,saved=rs.export(data,source,result['scenario'],True)
-        self.assertEqual(len(saved['changes']),len(result['changes']))
+        with self.assertRaisesRegex(ValueError, 'Export blocked.*attached SuSa'):
+            rs.export(data,source,result['scenario'],True)
 
     def test_susa_is_rejected_before_any_ai_call(self):
         with patch.object(rs,'_call') as call,self.assertRaises(ValueError):

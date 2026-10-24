@@ -54,6 +54,8 @@ def validate(statement):
         # is documented. Additive currency relationships must match exactly.
         tolerance=Decimal('.01') if rule.get('operation')=='percentage' else Decimal(0)
         if abs(expected-printed)>tolerance:errors.append(f"{rule['target']}: printed {printed}, calculated {expected}")
+    from ledger_reconciliation import discrepancies
+    errors.extend(discrepancies(statement.get('ledger_checks', []), values))
     statement['discrepancies']=errors
     statement['verified']=not errors
     return statement
@@ -272,7 +274,12 @@ def cash_basis(data):
             for col in (0,4):cells[col]['editable']=cells[col]['id'] not in targets
             if cells[0]['editable'] and cells[4]['editable']:pairs.append([cells[0]['id'],cells[4]['id']])
     statement.update(profile='datev_cash_basis',report_type='BWA',export_mode='native',profile_rules=rules,period_pairs=pairs,
-        profile_note='Cash-basis BWA totals, percentages, liquidity and comparison pages recalculated with Decimal. Monthly input changes also update year-to-date by the same delta. VAT and other taxes remain independent inputs. The attached SuSa ledger pages are source snapshots and remain unchanged; this is a report scenario, not a bookkeeping correction.')
+        profile_note='Cash-basis BWA totals, percentages, liquidity and comparison pages recalculated with Decimal. Monthly input changes also update year-to-date by the same delta. VAT and other taxes remain independent inputs. Scenario calculations do not create accounting entries. Export is blocked when SuSa snapshots are attached; obtain matching reports from the accounting system.')
+    from ledger_reconciliation import ledger_checks
+    checks = ledger_checks(data, tables, normalized)
+    statement['ledger_attached'] = checks is not None
+    statement['ledger_checks'] = checks or []
+    statement['notes'].append('Attached account reconciliation is limited to the supported SKR04 mappings. Unmapped accounts and cross-file prior-year/capital continuity are not verified. Scenario changes cannot be exported with unchanged ledger attachments.')
     statement['notes'].append(statement['profile_note'])
     return validate(statement)
 

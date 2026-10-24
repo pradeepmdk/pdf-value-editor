@@ -66,18 +66,16 @@ class BWAGoalTests(unittest.TestCase):
         changes={c['id']:c['new'] for c in result['changes']}
         self.assertEqual(changes[annual['default_source']],'176.497,58')
         self.assertEqual(changes[annual['target']],'100.000,00')
-        # December turnover and the December result stay as printed.
-        self.assertNotIn(monthly['default_source'],changes)
-        self.assertNotIn(monthly['target'],changes)
+        # Existing YTD allocation assigns the correction to December.
+        self.assertEqual(changes[monthly['default_source']],'137.711,76')
+        self.assertEqual(changes[monthly['target']],'123.260,29')
 
     def test_cash_ytd_loss_export(self):
         annual=options(self.cash)['periods'][1]
         source=next(c for c in self.cash['cells'] if c['id'] in annual['sources'] and c['column_index']==4)
         result=resolve(self.cash,[],self.goal(self.cash,annual['id'],source['id'],'loss','5.000,00'))
-        output,_=apply(self.cash_data,self.cash,result['edits'],result['rules'])
-        saved=validate_analysis(output,analyze(output))
-        self.assertTrue(saved['verified'])
-        self.assertEqual(next(c['text'] for c in saved['cells'] if c['id']==annual['target']),'-5.000,00')
+        with self.assertRaisesRegex(ValueError, 'Export blocked.*attached SuSa'):
+            apply(self.cash_data,self.cash,result['edits'],result['rules'])
 
     def test_monthly_input_can_reach_million_profit_ytd_target(self):
         monthly,annual=options(self.cash)['periods']
@@ -85,10 +83,8 @@ class BWAGoalTests(unittest.TestCase):
         result=resolve(self.cash,[],self.goal(self.cash,annual['id'],'c1','profit','1.000.000,00'))
         self.assertEqual(result['profit_loss']['after'],'1.000.000,00')
         self.assertEqual([e['id'] for e in result['edits']],['c1'])
-        output,_=apply(self.cash_data,self.cash,result['edits'],result['rules'])
-        saved=validate_analysis(output,analyze(output))
-        self.assertTrue(saved['verified'])
-        self.assertEqual(next(c['text'] for c in saved['cells'] if c['id']==annual['target']),'1.000.000,00')
+        with self.assertRaisesRegex(ValueError, 'Export blocked.*attached SuSa'):
+            apply(self.cash_data,self.cash,result['edits'],result['rules'])
 
     def test_explicit_ytd_override_blocks_monthly_goal_adjustment(self):
         annual=options(self.cash)['periods'][1]

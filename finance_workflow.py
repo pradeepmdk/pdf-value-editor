@@ -70,6 +70,8 @@ def plan(data, extracted, edits, rules, max_edits=30):
 
 def apply(data, extracted, edits, rules, allow_raster=False, max_edits=30):
     result = plan(data, extracted, edits, rules, max_edits)
+    if extracted.get('profile') == 'datev_cash_basis' and extracted.get('ledger_attached'):
+        raise ValueError('Export blocked: BWA scenario changes would leave the attached SuSa accounting records unchanged. Regenerate matching BWA and SuSa reports from the same accounting data version. Scenario calculations remain available for review.')
     if extracted.get('profile'):
         if any(c['mode']=='ocr' for c in result['changes']):
             if not allow_raster:

@@ -70,10 +70,8 @@ class BoundedForecastTests(unittest.TestCase):
             result=preview(data,source,[{'id':'c1','value':'12.000,00'}])
         self.assertEqual(len(calls),2)
         self.assertIn('Validation failed',calls[1]['messages'][-1]['content'])
-        output,_=export(data,source,result['forecast'],reviewed=True)
-        saved=validate_analysis(output,analyze(output))
-        self.assertTrue(saved['verified'],saved['discrepancies'])
-        self.assertEqual(saved['pages'],8)
+        with self.assertRaisesRegex(ValueError, 'Export blocked.*attached SuSa'):
+            export(data,source,result['forecast'],reviewed=True)
 
     def test_repeated_duplicate_ai_rows_still_rejected(self):
         def duplicate(request,**kwargs):
@@ -154,8 +152,9 @@ class BoundedForecastTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'invalid'):
             export(self.cash_data,self.cash,forged,reviewed=True)
         with patch('urllib.request.urlopen') as network:
-            output,_=export(self.cash_data,self.cash,result['forecast'],reviewed=True)
-            self.assertTrue(output);network.assert_not_called()
+            with self.assertRaisesRegex(ValueError, 'Export blocked.*attached SuSa'):
+                export(self.cash_data,self.cash,result['forecast'],reviewed=True)
+            network.assert_not_called()
 
     def test_ai_incomplete_or_invented_evidence_is_rejected(self):
         groups={'phone':[{'id':'p','label':'Telefon','context':'Telephone'}]}
